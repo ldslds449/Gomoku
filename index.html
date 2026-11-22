@@ -1552,7 +1552,8 @@
           );
           coordinate.scope = "row";
           row.append(coordinate);
-          row.insertCell().textContent = number(child.n);
+          // Rollouts, not visits, which also count decided positions reached.
+          row.insertCell().textContent = number(child.outcomes[0]);
           row.insertCell().textContent = (child.w / child.n).toFixed(3);
           const proof = { win: "必勝", loss: "必敗", draw: "必和" }[
             child.proven
@@ -1611,6 +1612,9 @@
           rate: 1 - values[j + 2] / (2 * n),
           proof: ["", "win", "draw", "loss"][values[j + 3]],
           plies: values[j + 4],
+          // Rollouts played below the move. Visits (`n`) also count each time
+          // selection reaches a decided position, which plays no game.
+          games: values[j + 5],
         });
       }
       // The worker sends the moves already ranked best first for the player.
@@ -1636,7 +1640,7 @@
                   ? "會輸"
                   : `勝率 ${Math.round(100 * m.rate)}%`,
             ),
-            element("span", m.proof ? "" : games(m.n), "count"),
+            element("span", m.proof ? "" : games(m.games), "count"),
           );
           return row;
         }),
