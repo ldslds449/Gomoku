@@ -43,6 +43,6 @@ jobs:
           cargo clippy --locked --all-targets -- -D warnings
           cargo clippy --locked --lib --target wasm32-unknown-unknown -- -D warnings
 
-      # GPU tests are macOS-only and ignored by default.
+      # GPU tests need a native GPU and are ignored by default.
       - name: Test
         run: cargo test --locked

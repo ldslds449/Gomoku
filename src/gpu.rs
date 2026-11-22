@@ -340,11 +340,14 @@ impl Gpu {
     }
 }
 
-#[cfg(all(test, target_os = "macos"))]
+#[cfg(all(
+    test,
+    any(target_os = "macos", target_os = "windows", target_os = "linux")
+))]
 mod tests {
     use super::*;
     #[test]
-    #[ignore = "requires a Metal GPU"]
+    #[ignore = "requires a Metal, Vulkan or DX12 GPU"]
     fn pending_dispatch_matches_cpu_scoring() {
         pollster::block_on(async {
             let gpu = Gpu::with_width(8).await.unwrap();
@@ -380,7 +383,7 @@ mod tests {
         })
     }
     #[test]
-    #[ignore = "requires a Metal GPU"]
+    #[ignore = "requires a Metal, Vulkan or DX12 GPU"]
     fn pending_throughput_benchmark() {
         pollster::block_on(async {
             let gpu = Gpu::with_width(64).await.unwrap();
@@ -451,7 +454,7 @@ mod tests {
     // Games per second for one full dispatch (256 leaves x 256 games) from
     // positions of the five-free pattern, by workgroup width and rollout policy.
     #[test]
-    #[ignore = "requires a Metal GPU"]
+    #[ignore = "requires a Metal, Vulkan or DX12 GPU"]
     fn shader_throughput_benchmark() {
         pollster::block_on(async {
             for width in [32, 64, 128, 256] {
@@ -489,7 +492,7 @@ mod tests {
         })
     }
     #[test]
-    #[ignore = "requires a Metal GPU"]
+    #[ignore = "requires a Metal, Vulkan or DX12 GPU"]
     fn pipelined_dispatches_match_cpu_scoring() {
         pollster::block_on(async {
             let gpu = Gpu::with_width(64).await.unwrap();
@@ -522,7 +525,7 @@ mod tests {
         })
     }
     #[test]
-    #[ignore = "requires a Metal GPU"]
+    #[ignore = "requires a Metal, Vulkan or DX12 GPU"]
     fn rollout_scores_match_individually() {
         pollster::block_on(async {
             let gpu = Gpu::with_width(1).await.unwrap();
@@ -595,7 +598,7 @@ mod tests {
         });
     }
     #[test]
-    #[ignore = "requires a Metal GPU"]
+    #[ignore = "requires a Metal, Vulkan or DX12 GPU"]
     fn rollout_benchmark() {
         pollster::block_on(async {
             for width in [64, 32, 16, 8, 4, 1] {

@@ -40,7 +40,7 @@ npm run format        # cargo fmt + prettier
 npm run format:check
 cargo clippy --all-targets -- -D warnings
 cargo test            # 單元測試
-cargo test -- --ignored                              # GPU 測試（需要 macOS 的 Metal GPU）
+cargo test -- --ignored                              # GPU 測試（macOS 用 Metal，Windows 用 DX12／Vulkan，Linux 用 Vulkan）
 cargo test --release -- --ignored --nocapture <名稱>  # 效能量測與自我對戰
 ```
 
