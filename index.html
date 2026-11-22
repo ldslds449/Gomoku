@@ -1773,7 +1773,7 @@
                 hintMoves[0]?.proof === "win"
                 ? "搜尋完畢 · 已證明你必勝"
                 : "搜尋完畢"
-              : `預先搜尋中 · 已模擬 ${data.simulations.toLocaleString("zh-TW")} 場`;
+              : `預先搜尋中 · 沿用 ${data.reused.toLocaleString("zh-TW")} 場 + 新增 ${data.simulations.toLocaleString("zh-TW")} 場`;
           return;
         }
         if (data.type === "black-checked") {

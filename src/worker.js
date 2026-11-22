@@ -13,8 +13,9 @@ function report(initial) {
 }
 // The AI's search, kept after its move. Pondering continues below the played
 // move while the player thinks, and the next search continues from the
-// player's reply. `board` is the position after the AI's move, and
-// `simulations` counts pondering work.
+// player's reply. `board` is the position after the AI's move, `reused`
+// counts the AI's own simulations below that move, and `simulations` counts
+// pondering work.
 let kept;
 let ponderTimer;
 let pendingRound;
@@ -164,6 +165,7 @@ function keep(search, board, root, point, config) {
     root,
     key: searchKey(config),
     batch: config.batch,
+    reused: search.focus_visits(),
     simulations: 0,
     deadline: 0,
   };
@@ -199,6 +201,7 @@ function ponderStatus(state, reason) {
     state,
     reason,
     simulations: kept?.simulations ?? 0,
+    reused: kept?.reused ?? 0,
     // The player's replies as searched so far, best first for the player.
     hint: kept
       ? wasm_bindgen.rank_stats(kept.search.focus_stats(), kept.batch, false)

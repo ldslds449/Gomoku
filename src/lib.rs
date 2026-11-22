@@ -1138,18 +1138,7 @@ impl Search {
     // The same statistics for the opponent's replies to the focused move,
     // still from the root player's view, for hints while pondering.
     pub fn focus_stats(&self) -> Vec<u32> {
-        let Some(point) = self.focus else {
-            return Vec::new();
-        };
-        let node = &self.nodes[0];
-        let Some(id) = node
-            .choices
-            .iter()
-            .flatten()
-            .zip(&node.children)
-            .find(|(&i, _)| usize::from(i) == point)
-            .map(|(_, &id)| id)
-        else {
+        let (Some(point), Some(id)) = (self.focus, self.focus_node()) else {
             return Vec::new();
         };
         let stats = self.stats_at(id);
@@ -1166,6 +1155,20 @@ impl Search {
             }
         }
         stats
+    }
+    // Simulations below the focused move, from the AI's search and pondering.
+    pub fn focus_visits(&self) -> u32 {
+        self.focus_node().map_or(0, |id| self.nodes[id].n)
+    }
+    fn focus_node(&self) -> Option<usize> {
+        let point = self.focus?;
+        let node = &self.nodes[0];
+        node.choices
+            .iter()
+            .flatten()
+            .zip(&node.children)
+            .find(|(&i, _)| usize::from(i) == point)
+            .map(|(_, &id)| id)
     }
     fn stats_at(&self, id: usize) -> Vec<u32> {
         self.edges(id)
