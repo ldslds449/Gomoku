@@ -372,6 +372,26 @@ impl Gpu {
 ))]
 mod tests {
     use super::*;
+    // A search on a benchmark position with the root threat search's proof
+    // cleared, so that selection keeps reaching leaves to score.
+    fn unproven(board: &crate::Board, rule: u8) -> Search {
+        let mut s = Search::new(board, 2, 42, 2f64.sqrt(), Some(rule)).unwrap();
+        s.vcf_move = None;
+        s.nodes[0].proven = None;
+        s
+    }
+    // Select until exactly `leaves` leaves are pending: terminal leaves are
+    // scored at once and do not count.
+    fn fill(s: &mut Search, leaves: u32, batch: u32) {
+        for _ in 0..100 {
+            let pending = s.pending.len() as u32;
+            if s.select_batch(leaves - pending, batch) == leaves {
+                return;
+            }
+            assert!(s.solved() < 0, "the benchmark position was proven");
+        }
+        panic!("too many terminal leaves");
+    }
     #[test]
     #[ignore = "requires a Metal, Vulkan or DX12 GPU"]
     fn pending_dispatch_matches_cpu_scoring() {
@@ -434,12 +454,12 @@ mod tests {
                 (1024, 16),
                 (1024, 64),
             ] {
-                let mut s = Search::new(&board, 2, 42, 2f64.sqrt(), None).unwrap();
+                let mut s = unproven(&board, 0);
                 assert!(s.direct() < 0);
                 let (mut select, mut dispatch) = (vec![], vec![]);
                 for k in 0..25 {
                     let t = std::time::Instant::now();
-                    assert_eq!(s.select_batch(leaves, batch), leaves);
+                    fill(&mut s, leaves, batch);
                     let selected = t.elapsed();
                     let t = std::time::Instant::now();
                     gpu.run_pending(&mut s, batch).await.unwrap();
@@ -452,10 +472,10 @@ mod tests {
                 dispatch.sort();
                 let games = f64::from(batch * leaves);
                 // The same work with selection overlapping two dispatches in flight.
-                let mut s = Search::new(&board, 2, 42, 2f64.sqrt(), None).unwrap();
+                let mut s = unproven(&board, 0);
                 let start = std::time::Instant::now();
                 for _ in 0..20 {
-                    s.select_batch(leaves, batch);
+                    fill(&mut s, leaves, batch);
                     gpu.submit(&mut s, batch).unwrap();
                     if gpu.flights() >= 2 {
                         gpu.finish(&mut s).await.unwrap();
@@ -497,11 +517,11 @@ mod tests {
                         }
                     }
                     for (rule, policy) in [(0, false), (0, true), (2, false), (2, true)] {
-                        let mut s = Search::new(&board, 2, 42, 2f64.sqrt(), Some(rule)).unwrap();
+                        let mut s = unproven(&board, rule);
                         s.policy = policy;
                         let mut times = vec![];
                         for _ in 0..12 {
-                            assert_eq!(s.select_batch(256, 256), 256);
+                            fill(&mut s, 256, 256);
                             let t = std::time::Instant::now();
                             gpu.run_pending(&mut s, 256).await.unwrap();
                             times.push(t.elapsed());
