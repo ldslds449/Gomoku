@@ -1,0 +1,15 @@
+{
+  "name": "gomoku-webgpu",
+  "private": true,
+  "scripts": {
+    "format": "cargo fmt --all && prettier --write .",
+    "format:check": "cargo fmt --all -- --check && prettier --check .",
+    "build": "node scripts/build.mjs",
+    "build:pages": "mkdir -p dist && cp index.html engine.bundle.js dist/"
+  },
+  "devDependencies": {
+    "prettier": "3.10.1",
+    "prettier-plugin-toml": "4.1.0",
+    "prettier-plugin-wgsl": "0.1.14"
+  }
+}

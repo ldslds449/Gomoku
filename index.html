@@ -1,0 +1,2199 @@
+<!doctype html>
+<html lang="zh-Hant">
+  <meta charset="utf-8" /><meta
+    name="viewport"
+    content="width=device-width,initial-scale=1"
+  /><title>五子棋｜人機對弈</title>
+  <style>
+    * {
+      box-sizing: border-box;
+    }
+    [hidden] {
+      display: none !important;
+    }
+    :root {
+      color-scheme: light;
+      --ink: #26362e;
+      --muted: #53665d;
+      --surface: #fffefa;
+      --line: #d9e0d8;
+      --tint: #edf2ec;
+      --accent: #36634f;
+      --primary: #47745e;
+      --radius: 18px;
+    }
+    body {
+      max-width: 1216px;
+      margin: auto;
+      padding: 22px clamp(14px, 4vw, 48px) 48px;
+      background: #eef1eb;
+      color: var(--ink);
+      font:
+        1rem/1.5 system-ui,
+        -apple-system,
+        sans-serif;
+    }
+    .site-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+      margin-bottom: 22px;
+      padding: 4px 0 17px;
+      border-bottom: 1px solid #d3dbd1;
+    }
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 13px;
+      min-width: max-content;
+    }
+    .brand-mark {
+      display: grid;
+      grid-template-columns: repeat(2, 9px);
+      gap: 4px;
+      padding: 11px;
+      border-radius: 12px;
+      background: var(--primary);
+    }
+    .brand-mark i {
+      height: 9px;
+      border-radius: 50%;
+      background: #e9d2a7;
+    }
+    .brand-mark i:nth-child(2),
+    .brand-mark i:nth-child(3) {
+      background: #b8d0bb;
+    }
+    .brand h1 {
+      margin: 0;
+      font-size: 1.65rem;
+      line-height: 1.1;
+      letter-spacing: 0.05em;
+    }
+    .brand p {
+      margin: 3px 0 0;
+      color: var(--muted);
+      font-size: 0.875rem;
+    }
+    #backend {
+      min-width: 0;
+      max-width: 50%;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      color: var(--muted);
+      font-size: 0.8125rem;
+    }
+    #backend-details {
+      margin: 0;
+      overflow-wrap: anywhere;
+      color: var(--muted);
+      font-size: 0.8125rem;
+    }
+    .play-area {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) minmax(300px, 354px);
+      align-items: start;
+      gap: 18px;
+    }
+    .game-board,
+    .panel,
+    .win-chart,
+    .search-log {
+      min-width: 0;
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      background: var(--surface);
+      box-shadow: 0 3px 10px rgb(23 45 38 / 4%);
+    }
+    .game-board {
+      padding: clamp(9px, 1.8vw, 20px);
+      background: #e0e9dd;
+      box-shadow: 0 6px 18px rgb(23 45 38 / 10%);
+    }
+    .game-status {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      align-items: baseline;
+      gap: 2px 10px;
+      padding: 0 3px 10px;
+    }
+    #status {
+      margin: 0;
+      font-size: clamp(1rem, 2vw, 1.25rem);
+      font-weight: 700;
+    }
+    #move-count,
+    #ponder-status {
+      font-size: 0.8125rem;
+      color: #53665d;
+      font-variant-numeric: tabular-nums;
+    }
+    #hint {
+      padding: 8px 14px;
+    }
+    #hint summary {
+      font-size: 0.9375rem;
+      font-weight: 700;
+    }
+    #hint-list {
+      display: grid;
+      grid-template-columns: auto auto 1fr auto;
+      gap: 2px 10px;
+      margin: 6px 0 2px;
+      padding: 0;
+      list-style: none;
+      font-size: 0.8125rem;
+      font-variant-numeric: tabular-nums;
+    }
+    #hint-list li {
+      display: contents;
+    }
+    #hint-list .rank {
+      color: #207555;
+      font-weight: 700;
+    }
+    #hint-list .count {
+      color: var(--muted);
+      text-align: right;
+    }
+    #ponder-status {
+      grid-column: 1 / -1;
+      min-height: 1.25em;
+      overflow-wrap: anywhere;
+    }
+    #board {
+      display: block;
+      width: 100%;
+      height: auto;
+      aspect-ratio: 1;
+      border-radius: 10px;
+      background: #e5bd85;
+      touch-action: manipulation;
+      box-shadow: 0 3px 12px rgb(0 0 0 / 25%);
+    }
+    .board-footer {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      flex-wrap: wrap;
+      gap: 10px;
+      padding-top: 14px;
+    }
+    .keyboard-hint {
+      margin: 0;
+      color: #53665d;
+      font-size: 0.8125rem;
+    }
+    kbd {
+      padding: 2px 5px;
+      border: 1px solid #c6d2c8;
+      border-radius: 4px;
+      font: inherit;
+      color: var(--ink);
+      background: var(--surface);
+    }
+    .game-actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-inline-start: auto;
+    }
+    button,
+    select,
+    input:not([type="checkbox"]),
+    .file-button {
+      min-height: 40px;
+      border: 1px solid #c6d2c8;
+      border-radius: 8px;
+      padding: 7px 10px;
+      color: var(--ink);
+      background: #fff;
+      font: inherit;
+    }
+    button,
+    .file-button {
+      cursor: pointer;
+      font-size: 0.875rem;
+      font-weight: 650;
+    }
+    button:hover:not(:disabled),
+    .file-button:hover {
+      background: var(--tint);
+    }
+    :focus-visible {
+      outline: 3px solid #378465;
+      outline-offset: 3px;
+    }
+    button:disabled {
+      opacity: 0.55;
+      cursor: default;
+    }
+    #reset,
+    #play-again {
+      border-color: var(--primary);
+      background: var(--primary);
+      color: #fff;
+    }
+    #reset:hover,
+    #play-again:hover {
+      background: #36634f;
+    }
+    select {
+      width: 100%;
+      appearance: none;
+      padding-inline-end: 30px;
+      background-image:
+        linear-gradient(45deg, transparent 50%, var(--muted) 50%),
+        linear-gradient(135deg, var(--muted) 50%, transparent 50%);
+      background-position:
+        right 15px center,
+        right 10px center;
+      background-size: 5px 5px;
+      background-repeat: no-repeat;
+    }
+    .sidebar {
+      display: grid;
+      gap: 12px;
+      min-width: 0;
+    }
+    .panel,
+    .win-chart {
+      padding: 14px 16px;
+    }
+    .match-settings h2,
+    .win-chart h2 {
+      margin: 0 0 12px;
+      font-size: 1.0625rem;
+    }
+    .match-fields {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 12px;
+    }
+    .match-fields label {
+      display: grid;
+      gap: 5px;
+      min-width: 0;
+      color: var(--muted);
+      font-size: 0.875rem;
+      font-weight: 600;
+    }
+    .match-fields select {
+      font-weight: 500;
+    }
+    .sidebar-actions {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 8px;
+    }
+    .utility-dialog {
+      width: min(560px, calc(100% - 28px));
+      max-block-size: 85dvh;
+      overflow: auto;
+      overscroll-behavior: contain;
+    }
+    .dialog-header {
+      position: sticky;
+      top: -24px;
+      z-index: 1;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      margin: -24px -24px 12px;
+      padding: 12px 24px;
+      border-bottom: 1px solid var(--line);
+      background: var(--surface);
+    }
+    .dialog-header h2 {
+      margin: 0;
+      font-size: 1.125rem;
+    }
+    .outcomes {
+      margin: 10px 0;
+    }
+    .outcome-cards {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 8px;
+    }
+    .outcome-card {
+      padding: 9px 11px;
+      background: var(--tint);
+      border-radius: 10px;
+      font-variant-numeric: tabular-nums;
+    }
+    .outcome-card span {
+      display: flex;
+      align-items: center;
+      gap: 7px;
+      font-size: 0.875rem;
+    }
+    .outcome-card strong {
+      display: block;
+      font-size: 1.375rem;
+    }
+    .outcome-card span::before {
+      content: "";
+      flex: 0 0 11px;
+      height: 11px;
+      border: 1px solid #667b6d;
+      border-radius: 50%;
+      background: #202724;
+    }
+    .outcome-card + .outcome-card span::before {
+      background: #fffdf3;
+    }
+    #draw-rate,
+    #position-note,
+    #win-rate,
+    #rules-note,
+    small {
+      color: var(--muted);
+      font-size: 0.8125rem;
+    }
+    #draw-rate {
+      min-block-size: 1.5em;
+      margin: 6px 0 0;
+      text-align: center;
+    }
+    #win-rate,
+    #position-note {
+      margin: 0;
+      overflow-wrap: anywhere;
+    }
+    #win-rate {
+      block-size: 3em;
+      margin-bottom: 8px;
+      overflow: auto;
+    }
+    #position-note {
+      min-block-size: 1.5em;
+      font-weight: 700;
+      color: var(--accent);
+    }
+    #win-chart {
+      display: block;
+      width: 100%;
+      height: 144px;
+      margin-bottom: 6px;
+    }
+    #rules-note {
+      margin: 10px 0 0;
+    }
+    dialog {
+      width: min(390px, calc(100% - 28px));
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      padding: 24px;
+      background: var(--surface);
+      color: var(--ink);
+    }
+    dialog::backdrop {
+      background: rgb(25 40 32 / 55%);
+    }
+    dialog h2 {
+      margin: 0 0 8px;
+    }
+    dialog form {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+    @media (max-width: 760px) {
+      .play-area {
+        grid-template-columns: minmax(0, 1fr);
+      }
+      .keyboard-hint {
+        display: none;
+      }
+    }
+    fieldset {
+      margin: 12px 0 0;
+      padding: 0;
+      border: 0;
+      min-width: 0;
+      display: grid;
+      gap: 10px;
+    }
+    fieldset legend {
+      padding: 0 0 8px;
+      color: var(--muted);
+      font-size: 13px;
+    }
+    fieldset .ponder-control {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    #ponder {
+      width: auto;
+    }
+    fieldset label {
+      display: grid;
+      gap: 5px;
+    }
+    input {
+      font: inherit;
+      width: 100%;
+      padding: 6px;
+    }
+    .search-log {
+      margin-top: 18px;
+      padding: 16px;
+    }
+    .search-log > h2 {
+      margin: 0 0 12px;
+      font-size: 18px;
+    }
+    .log-layout {
+      display: grid;
+      grid-template-columns: 210px minmax(0, 1fr);
+      gap: 16px;
+      min-height: 200px;
+    }
+    .log-list {
+      list-style: none;
+      margin: 0;
+      padding: 0 8px 0 0;
+      max-height: 520px;
+      overflow: auto;
+      border-right: 1px solid var(--line);
+    }
+    .log-list button {
+      display: grid;
+      gap: 2px;
+      width: 100%;
+      border: 0;
+      border-radius: 6px;
+      padding: 7px 9px;
+      background: none;
+      text-align: left;
+      cursor: pointer;
+    }
+    .log-list button:hover {
+      background: var(--tint);
+    }
+    .log-list button[aria-current="true"] {
+      background: #e1ede3;
+      font-weight: 600;
+    }
+    .log-list small {
+      font-weight: 400;
+    }
+    .log-empty {
+      color: var(--muted);
+      font-size: 13px;
+    }
+    .log-detail {
+      min-width: 0;
+    }
+    .log-heading {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: baseline;
+      gap: 6px 12px;
+    }
+    .log-heading h3 {
+      margin: 0;
+      font-size: 17px;
+    }
+    .log-badge {
+      padding: 2px 9px;
+      border-radius: 999px;
+      background: var(--tint);
+      font-size: 13px;
+    }
+    .log-badge.win {
+      background: #d6ecdd;
+      color: #1d5c3a;
+    }
+    .log-badge.loss {
+      background: #f5dcd9;
+      color: #8a2c22;
+    }
+    .log-more {
+      margin-top: 6px;
+      font-size: 13px;
+    }
+    @media (max-width: 720px) {
+      .log-layout {
+        grid-template-columns: 1fr;
+      }
+      .log-list {
+        display: flex;
+        max-height: none;
+        overflow-x: auto;
+        padding: 0 0 8px;
+        border-right: 0;
+        border-bottom: 1px solid var(--line);
+      }
+      .log-list li {
+        flex: 0 0 auto;
+      }
+    }
+    .settings-note {
+      margin: 0 0 4px;
+      color: var(--muted);
+      font-size: 13px;
+    }
+    .log-metrics {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 10px;
+      margin: 12px 0;
+    }
+    .log-metrics div {
+      padding: 6px 8px;
+      background: var(--tint);
+      border-radius: 6px;
+    }
+    .log-metrics dt {
+      font-size: 12px;
+      color: var(--muted);
+    }
+    .log-metrics dd {
+      margin: 2px 0 0;
+      font-weight: 600;
+      overflow-wrap: anywhere;
+    }
+    .log-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 13px;
+    }
+    .log-table caption {
+      text-align: left;
+      font-weight: 600;
+      margin-bottom: 4px;
+    }
+    .log-table th,
+    .log-table td {
+      padding: 4px;
+      text-align: right;
+    }
+    .log-table th:first-child {
+      text-align: left;
+    }
+    .log-table thead {
+      color: var(--muted);
+      border-bottom: 1px solid #c6d2c8;
+    }
+    .log-table .selected {
+      background: #e1ede3;
+    }
+    .log-note {
+      margin: 8px 0;
+      color: var(--muted);
+      font-size: 13px;
+      overflow-wrap: anywhere;
+    }
+    summary {
+      cursor: pointer;
+    }
+    .record-field {
+      display: grid;
+      gap: 5px;
+      margin-bottom: 8px;
+      color: var(--muted);
+      font-size: 13px;
+    }
+    .record-field input {
+      font-family: ui-monospace, monospace;
+      font-size: 13px;
+    }
+    .record-actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-bottom: 12px;
+    }
+    .file-button {
+      display: inline-flex;
+      align-items: center;
+    }
+  </style>
+  <header class="site-header">
+    <div class="brand">
+      <span class="brand-mark" aria-hidden="true"
+        ><i></i><i></i><i></i><i></i
+      ></span>
+      <div>
+        <h1>五子棋</h1>
+        <p>人機對弈</p>
+      </div>
+    </div>
+    <output id="backend" aria-live="polite"></output>
+  </header>
+  <dialog
+    id="game-result"
+    aria-labelledby="result-title"
+    aria-describedby="result-details"
+  >
+    <h2 id="result-title"></h2>
+    <p id="result-details"></p>
+    <form method="dialog">
+      <button autofocus>查看棋盤</button>
+      <button type="button" id="play-again">再玩一局</button>
+    </form>
+  </dialog>
+  <main class="play-area">
+    <section class="game-board" aria-label="對局棋盤">
+      <div class="game-status">
+        <p role="status" id="status"></p>
+        <span id="move-count"></span>
+        <span id="ponder-status"></span>
+      </div>
+      <canvas
+        id="board"
+        width="750"
+        height="750"
+        aria-label="五子棋盤，方向鍵移動游標，Enter 落子"
+        tabindex="0"
+      ></canvas>
+      <div class="board-footer">
+        <p class="keyboard-hint">
+          <kbd>↑ ↓ ← →</kbd> 移動 <kbd>Enter</kbd> 落子
+        </p>
+        <div class="game-actions" role="group" aria-label="對局操作">
+          <button id="undo" type="button" disabled>悔棋</button>
+          <button id="redo" type="button" disabled>重做</button>
+          <button id="reset">重新開局</button>
+        </div>
+      </div>
+    </section>
+    <aside class="sidebar" aria-label="對局設定與分析">
+      <section class="panel match-settings" aria-labelledby="match-title">
+        <h2 id="match-title">對局設定</h2>
+        <div class="match-fields">
+          <label
+            >棋盤
+            <select id="size">
+              <option value="9">9×9</option>
+              <option value="13">13×13</option>
+              <option value="15" selected>15×15</option>
+            </select></label
+          >
+          <label
+            >規則
+            <select id="rule">
+              <option value="0">五子以上</option>
+              <option value="1">恰好五子</option>
+              <option value="2">黑棋禁手</option>
+            </select></label
+          >
+          <label
+            >玩家執子
+            <select id="side">
+              <option value="1">黑棋（先手）</option>
+              <option value="2">白棋（後手）</option>
+            </select></label
+          >
+          <label
+            >難易度
+            <select
+              id="difficulty"
+              title="套用思考時間與隨機程度，詳見搜尋設定"
+            >
+              <option value="beginner">入門</option>
+              <option value="easy">簡單</option>
+              <option value="normal" selected>普通</option>
+              <option value="hard">困難</option>
+              <option value="custom">自訂</option>
+            </select></label
+          >
+        </div>
+        <p id="rules-note" hidden>
+          本模式採簡化禁手，黑棋禁長連、雙四和雙三。雙三按可延伸成兩端開放的直四判定，不逐層驗證延伸點的禁手。白棋五子以上即勝。此模式使用
+          CPU。
+        </p>
+      </section>
+      <div class="sidebar-actions">
+        <button type="button" id="open-search-settings" aria-haspopup="dialog">
+          搜尋設定
+        </button>
+        <button type="button" id="open-game-record" aria-haspopup="dialog">
+          棋譜
+        </button>
+      </div>
+      <details id="hint" class="panel" hidden>
+        <summary
+          title="勝率是 AI 隨機模擬的估計，預先搜尋越久越準；展開時棋盤上的數字是排名。"
+        >
+          提示 · AI 推薦你的下一手
+        </summary>
+        <ol id="hint-list"></ol>
+      </details>
+      <section class="win-chart">
+        <h2>玩家模擬勝率</h2>
+        <div class="outcomes">
+          <div class="outcome-cards">
+            <div class="outcome-card">
+              <span>黑棋</span><strong id="black-rate">—</strong>
+            </div>
+            <div class="outcome-card">
+              <span>白棋</span><strong id="white-rate">—</strong>
+            </div>
+          </div>
+          <p id="draw-rate"></p>
+        </div>
+        <p id="position-note"></p>
+        <p id="win-rate">等待第一筆模擬</p>
+        <canvas
+          id="win-chart"
+          width="360"
+          height="144"
+          aria-label="玩家每手的模擬勝率折線圖"
+        ></canvas>
+        <small>折線顯示 AI 各手採用著點的玩家模擬勝率。</small>
+      </section>
+    </aside>
+  </main>
+  <section class="search-log" aria-labelledby="log-title">
+    <h2 id="log-title">搜尋紀錄</h2>
+    <div class="log-layout">
+      <ol id="log-list" class="log-list" aria-label="AI 各手"></ol>
+      <div id="log-detail" class="log-detail" aria-live="polite"></div>
+    </div>
+  </section>
+  <dialog
+    id="search-settings"
+    class="utility-dialog"
+    aria-labelledby="search-settings-title"
+  >
+    <header class="dialog-header">
+      <h2 id="search-settings-title">搜尋設定</h2>
+      <form method="dialog"><button autofocus>關閉</button></form>
+    </header>
+    <p class="settings-note">
+      難易度會套用思考時間與隨機程度；手動修改這兩項會切換成「自訂」。設定在下一手生效。
+    </p>
+    <fieldset class="search-fieldset">
+      <legend>思考</legend>
+      <label
+        >預算模式<select id="mode">
+          <option value="time">時間</option>
+          <option value="rounds">固定輪數（可重現）</option>
+        </select></label
+      >
+      <label id="ms-field"
+        >思考時間（毫秒）<input
+          id="ms"
+          type="number"
+          min="1"
+          max="60000"
+          value="1000"
+      /></label>
+      <label id="rounds-field" hidden
+        >搜尋輪數<input
+          id="rounds"
+          type="number"
+          min="1"
+          max="100000"
+          value="1000"
+      /></label>
+      <label
+        >隨機程度（溫度，0 為只下最佳著手）<input
+          id="temperature"
+          type="number"
+          min="0"
+          max="5"
+          step="any"
+          value="0.25"
+      /></label>
+    </fieldset>
+    <fieldset class="search-fieldset">
+      <legend>預先搜尋</legend>
+      <label class="ponder-control"
+        ><input id="ponder" type="checkbox" checked /> 玩家思考時預先搜尋</label
+      >
+      <label
+        >預先搜尋時間上限
+        <select id="ponder-seconds">
+          <option value="10">10 秒</option>
+          <option value="30">30 秒</option>
+          <option value="60" selected>1 分鐘</option>
+          <option value="120">2 分鐘</option>
+          <option value="0">不設限</option>
+        </select>
+      </label>
+    </fieldset>
+    <fieldset class="search-fieldset">
+      <legend>進階</legend>
+      <label
+        >每輪隨機對局數（總模擬數 = 搜尋輪數 × 此值）<select id="batch">
+          <option>64</option>
+          <option>128</option>
+          <option>256</option>
+          <option>512</option>
+          <option>1024</option>
+          <option>2048</option>
+          <option>4096</option>
+          <option>8192</option>
+        </select></label
+      >
+      <label
+        >GPU 每次派送的葉節點上限（越大越能吃滿 GPU，總場數最多
+        65536；自動依實測速度調整）<select id="leaves">
+          <option value="0" selected>自動</option>
+          <option>1</option>
+          <option>4</option>
+          <option>16</option>
+          <option>64</option>
+          <option>256</option>
+        </select></label
+      >
+      <label
+        >執行緒數（多棵搜尋樹同時搜尋後合併統計）<select id="threads">
+          <option value="0" selected>自動（CPU 最多 4，GPU 為 1）</option>
+          <option>1</option>
+          <option>2</option>
+          <option>4</option>
+          <option>8</option>
+        </select></label
+      >
+      <label
+        >模擬策略<select id="rollout">
+          <option value="random" selected>隨機落子（預設，最快）</option>
+          <option value="policy">能連五就連五、對方能連五就擋</option>
+        </select></label
+      >
+      <label
+        >選點公式<select id="formula">
+          <option value="puct" selected>PUCT：以候選評分為先驗（預設）</option>
+          <option value="uct">UCT</option>
+        </select></label
+      >
+      <label
+        >探索係數（PUCT 預設 0.5，UCT 預設 1.414）<input
+          id="explore"
+          type="number"
+          min="0"
+          max="10"
+          step="any"
+          value="0.5"
+      /></label>
+      <label
+        >亂數種子（留空則每局隨機）<input
+          id="seed"
+          type="number"
+          min="0"
+          max="4294967295"
+          placeholder="隨機"
+      /></label>
+    </fieldset>
+    <!-- Not a search fieldset: changing the device reconnects the worker. -->
+    <fieldset>
+      <legend>運算</legend>
+      <label
+        >模擬裝置
+        <select id="device">
+          <option value="auto">自動（優先 GPU）</option>
+          <option value="cpu">CPU</option>
+          <option value="gpu">GPU（WebGPU）</option>
+        </select></label
+      >
+      <p id="backend-details"></p>
+    </fieldset>
+  </dialog>
+  <dialog
+    id="game-record"
+    class="utility-dialog"
+    aria-labelledby="game-record-title"
+  >
+    <header class="dialog-header">
+      <h2 id="game-record-title">棋譜</h2>
+      <form method="dialog"><button autofocus>關閉</button></form>
+    </header>
+    <label class="record-field"
+      >目前棋譜（含棋盤、規則、玩家執子與每一手）
+      <input id="record-code" readonly spellcheck="false" />
+    </label>
+    <div class="record-actions">
+      <button type="button" id="record-copy">複製</button>
+      <button type="button" id="record-download">下載檔案</button>
+    </div>
+    <label class="record-field"
+      >載入棋譜
+      <input
+        id="record-input"
+        placeholder="貼上棋譜文字"
+        spellcheck="false"
+        autocomplete="off"
+      />
+    </label>
+    <div class="record-actions">
+      <button type="button" id="record-load">載入</button>
+      <label class="file-button"
+        >開啟檔案<input
+          id="record-file"
+          type="file"
+          accept=".txt,text/plain"
+          hidden
+      /></label>
+    </div>
+    <p id="record-status" class="log-note" role="status"></p>
+  </dialog>
+  <script src="engine.bundle.js"></script>
+  <script>
+    function won(b, i, p) {
+      for (const [dx, dy] of [
+        [1, 0],
+        [0, 1],
+        [1, 1],
+        [1, -1],
+      ]) {
+        let n = 1;
+        for (const d of [-1, 1]) {
+          let x = (i % 15) + d * dx,
+            y = Math.floor(i / 15) + d * dy;
+          while (x >= 0 && x < 15 && y >= 0 && y < 15 && b[y * 15 + x] === p) {
+            n++;
+            x += d * dx;
+            y += d * dy;
+          }
+        }
+        if (rule === 1 || (rule === 2 && p === 1) ? n === 5 : n >= 5)
+          return true;
+      }
+      return false;
+    }
+
+    const url = URL.createObjectURL(
+      new Blob([gomokuWorkerSource], { type: "text/javascript" }),
+    );
+    const canvas = document.querySelector("#board"),
+      ctx = canvas.getContext("2d"),
+      msg = document.querySelector("#status"),
+      side = document.querySelector("#side"),
+      sizeSelect = document.querySelector("#size"),
+      ruleSelect = document.querySelector("#rule");
+    let size, inset, rule, validating;
+    const margin = 47;
+    const spacing = () => (750 - 2 * margin) / (size - 1);
+    const index = (x, y) => (y + inset) * 15 + x + inset;
+    const column = (x) => String.fromCharCode(65 + x);
+    let board,
+      turn,
+      finished,
+      worker,
+      last,
+      cursor = 112,
+      keyboard = false,
+      ready = false;
+    // The player's best replies found while pondering, best first.
+    const hint = document.querySelector("#hint");
+    const hintList = document.querySelector("#hint-list");
+    let hintMoves = [];
+    // Proofs of every searched reply, kept until the player moves.
+    let hintProofs = new Map();
+    const hintOpen = () => !hint.hidden && hint.open;
+    function draw() {
+      const width = canvas.clientWidth;
+      if (!width) return;
+      const pixels = Math.round(width * (window.devicePixelRatio || 1));
+      if (canvas.width !== pixels) canvas.width = pixels;
+      if (canvas.height !== pixels) canvas.height = pixels;
+      const scale = pixels / 750;
+      ctx.setTransform(scale, 0, 0, scale, 0, 0);
+      ctx.clearRect(0, 0, 750, 750);
+      const wood = ctx.createLinearGradient(0, 0, 750, 750);
+      wood.addColorStop(0, "#f2d4a3");
+      wood.addColorStop(1, "#dca96e");
+      ctx.fillStyle = wood;
+      ctx.fillRect(0, 0, 750, 750);
+      const step = spacing();
+      const edge = 750 - margin;
+      const labelSize = Math.max(13, Math.min(18, (25 * width) / 750));
+      ctx.font = `700 ${(labelSize * 750) / width}px system-ui`;
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      ctx.fillStyle = "#513a23";
+      ctx.strokeStyle = "#765838";
+      ctx.lineWidth = Math.max(1, 530 / width);
+      for (let j = 0; j < size; j++) {
+        const v = margin + j * step;
+        ctx.beginPath();
+        ctx.moveTo(v, margin);
+        ctx.lineTo(v, edge);
+        ctx.moveTo(margin, v);
+        ctx.lineTo(edge, v);
+        ctx.stroke();
+        ctx.fillText(column(j), v, margin / 2);
+        ctx.fillText(String(j + 1), margin / 2, v);
+      }
+      // Star points help orient the player on each supported grid.
+      const offset = size === 9 ? 2 : 3;
+      const center = (size - 1) / 2;
+      const far = size - 1 - offset;
+      for (const [col, row] of [
+        [offset, offset],
+        [offset, far],
+        [far, offset],
+        [far, far],
+        [center, center],
+      ]) {
+        ctx.beginPath();
+        ctx.arc(margin + col * step, margin + row * step, 3.8, 0, 2 * Math.PI);
+        ctx.fill();
+      }
+      board.forEach((p, i) => {
+        if (p === 3) return;
+        const x = margin + ((i % 15) - inset) * step;
+        const y = margin + (Math.floor(i / 15) - inset) * step;
+        const radius = step * 0.42;
+        if (p) {
+          ctx.beginPath();
+          ctx.arc(x, y, radius, 0, 2 * Math.PI);
+          ctx.fillStyle = p === 1 ? "#242a27" : "#fffaf0";
+          ctx.fill();
+          if (i === last) {
+            ctx.beginPath();
+            ctx.arc(x, y, 4, 0, 2 * Math.PI);
+            ctx.fillStyle = "#cb6443";
+            ctx.fill();
+          }
+          // Ring the move the player picked in the search log.
+          if (logPinned && history[selectedLog]?.point === i) {
+            ctx.beginPath();
+            ctx.arc(x, y, radius + 3, 0, 7);
+            ctx.lineWidth = 3;
+            ctx.strokeStyle = "#207555";
+            ctx.stroke();
+            ctx.lineWidth = 1;
+          }
+        }
+        // Rank the hinted replies on their empty points.
+        const rank = hintOpen() ? hintMoves.findIndex((m) => m.i === i) : -1;
+        if (!p && rank >= 0) {
+          ctx.beginPath();
+          ctx.arc(x, y, radius * 0.7, 0, 2 * Math.PI);
+          ctx.fillStyle = "rgba(32, 117, 85, 0.82)";
+          ctx.fill();
+          ctx.fillStyle = "#fff";
+          ctx.fillText(String(rank + 1), x, y + 1);
+        }
+        if (keyboard && cursor === i) {
+          ctx.lineWidth = 2.5;
+          ctx.strokeStyle = "#207555";
+          ctx.strokeRect(x - radius, y - radius, 2 * radius, 2 * radius);
+        }
+      });
+    }
+    const history = [];
+    const undo = document.querySelector("#undo");
+    const redo = document.querySelector("#redo");
+    const redoHistory = [];
+    const resultDialog = document.querySelector("#game-result");
+    const resultTitle = document.querySelector("#result-title");
+    const resultDetails = document.querySelector("#result-details");
+    const chart = document.querySelector("#win-chart");
+    const rate = document.querySelector("#win-rate");
+    const chartCtx = chart.getContext("2d");
+    const percentage = (wins, total) => `${((100 * wins) / total).toFixed(1)}%`;
+    let positionWinner = null;
+    let positionRequest = 0;
+    function clearPositionResult() {
+      positionRequest++;
+      positionWinner = null;
+    }
+    // A proven outcome as a one-game sample: `winner` is 1 black, 2 white, 0 draw.
+    const provenSample = (turn, winner) => ({
+      turn,
+      wins: Number(winner === +side.value),
+      total: 1,
+      black: Number(winner === 1),
+      draws: Number(winner === 0),
+      proven: true,
+    });
+    function drawTrend() {
+      const samples = history.flatMap((move, i) => {
+        // Proofs replace the random-rollout rate of an AI move.
+        const proof = move.result?.proven;
+        if (proof)
+          return [
+            provenSample(
+              i + 1,
+              { win: move.player, loss: 3 - move.player, draw: 0 }[proof],
+            ),
+          ];
+        return move.simulations
+          ? [
+              {
+                turn: i + 1,
+                wins: move.simulations - move.wins - move.draws,
+                total: move.simulations,
+                black:
+                  move.player === 1
+                    ? move.wins
+                    : move.simulations - move.wins - move.draws,
+                draws: move.draws,
+              },
+            ]
+          : [];
+      });
+      const decisive = positionWinner !== null;
+      // A decided or proven current position ends the line at this move.
+      if (decisive && history.length) {
+        if (samples.at(-1)?.turn === history.length) samples.pop();
+        samples.push(provenSample(history.length, positionWinner));
+      }
+      const latest = samples.at(-1);
+      const positionNote = document.querySelector("#position-note");
+      const color = positionWinner === 1 ? "黑棋" : "白棋";
+      positionNote.textContent = !decisive
+        ? ""
+        : positionWinner === 0
+          ? "對局結果 · 和局"
+          : finished
+            ? `對局結果 · ${color}獲勝`
+            : `當前盤面 · ${color}必勝`;
+      const total = decisive ? 1 : latest?.total;
+      const black = decisive ? Number(positionWinner === 1) : latest?.black;
+      const draws = decisive ? Number(positionWinner === 0) : latest?.draws;
+      document.querySelector("#black-rate").textContent = total
+        ? percentage(black, total)
+        : "—";
+      document.querySelector("#white-rate").textContent = total
+        ? percentage(total - black - draws, total)
+        : "—";
+      document.querySelector("#draw-rate").textContent = draws
+        ? "和局 " + percentage(draws, total)
+        : "";
+      rate.textContent = latest?.proven
+        ? `第 ${latest.turn} 手 · ${latest.draws ? "已證明和局" : `已證明玩家${latest.wins ? "必勝" : "必敗"}`}`
+        : latest
+          ? "第 " +
+            latest.turn +
+            " 手採用著點 · " +
+            ((100 * latest.wins) / latest.total).toFixed(1) +
+            "%（" +
+            latest.wins +
+            " / " +
+            latest.total +
+            " 場）"
+          : "等待第一筆模擬";
+      const width = chart.clientWidth;
+      const height = chart.clientHeight;
+      if (!width || !height) return;
+      const density = window.devicePixelRatio || 1;
+      const pixelWidth = Math.round(width * density);
+      const pixelHeight = Math.round(height * density);
+      if (chart.width !== pixelWidth) chart.width = pixelWidth;
+      if (chart.height !== pixelHeight) chart.height = pixelHeight;
+      chartCtx.setTransform(
+        pixelWidth / width,
+        0,
+        0,
+        pixelHeight / height,
+        0,
+        0,
+      );
+      chartCtx.clearRect(0, 0, width, height);
+      const right = width - 12;
+      const bottom = height - 25;
+      const plotHeight = bottom - 14;
+      const plotY = (fraction) => bottom - fraction * plotHeight;
+      chartCtx.font = "12px system-ui";
+      chartCtx.textBaseline = "middle";
+      for (const value of [0, 25, 50, 75, 100]) {
+        const y = plotY(value / 100);
+        chartCtx.fillStyle = "#53665d";
+        chartCtx.fillText(value + "%", 0, y);
+        chartCtx.strokeStyle = "#c6d2c8";
+        chartCtx.beginPath();
+        chartCtx.moveTo(40, y);
+        chartCtx.lineTo(right, y);
+        chartCtx.stroke();
+      }
+      const end = Math.max(2, history.length);
+      const x = (turn) => 40 + ((turn - 1) / (end - 1)) * (right - 40);
+      chartCtx.fillText("1", 40, height - 9);
+      chartCtx.textAlign = "right";
+      chartCtx.fillText(String(end), right, height - 9);
+      chartCtx.textAlign = "left";
+      chartCtx.strokeStyle = "#207555";
+      chartCtx.lineWidth = 2;
+      chartCtx.beginPath();
+      samples.forEach(({ turn, wins, total }, i) => {
+        const y = plotY(wins / total);
+        if (i === 0) chartCtx.moveTo(x(turn), y);
+        else chartCtx.lineTo(x(turn), y);
+      });
+      chartCtx.stroke();
+      chartCtx.lineWidth = 1;
+      chartCtx.fillStyle = "#207555";
+      for (const { turn, wins, total } of samples) {
+        chartCtx.beginPath();
+        chartCtx.arc(x(turn), plotY(wins / total), 3, 0, 2 * Math.PI);
+        chartCtx.fill();
+      }
+    }
+    function place(i, result) {
+      if (
+        finished ||
+        !Number.isInteger(i) ||
+        i < 0 ||
+        i >= board.length ||
+        board[i]
+      )
+        return;
+      history.push({
+        point: i,
+        player: turn,
+        result: result ?? null,
+        simulations: result?.selected.total ?? 0,
+        wins: result?.selected.wins ?? 0,
+        draws: result?.selected.draws ?? 0,
+      });
+      redoHistory.length = 0;
+      if (result) {
+        selectedLog = history.length - 1;
+        showAllCandidates = false;
+        logPinned = false;
+      }
+      updateHistoryButtons();
+      board[i] = turn;
+      clearPositionResult();
+      // A solved AI search proves the position after its move, and the
+      // pondering proof of a reply proves it after the player's move.
+      const proof = result ? result.proven : hintProofs.get(i);
+      hintProofs = new Map();
+      if (proof === "win") positionWinner = turn;
+      else if (proof === "loss") positionWinner = 3 - turn;
+      last = i;
+      draw();
+      drawTrend();
+      if (checkOutcome(i)) return;
+      turn = 3 - turn;
+      next();
+    }
+    function checkOutcome(i) {
+      const victory = won(board, i, turn);
+      if (victory || board.every(Boolean)) {
+        const title = victory
+          ? turn === +side.value
+            ? "你獲勝了"
+            : "AI 獲勝"
+          : "和局";
+        const detail = victory
+          ? (turn === 1 ? "黑棋" : "白棋") + "連線獲勝"
+          : "棋盤已滿";
+        finishGame(
+          title,
+          `${detail}，共 ${history.length} 手。`,
+          victory ? turn : 0,
+        );
+        return true;
+      }
+      // Only a certain draw ends the game early: one side unable to make five
+      // does not lose, since the other side still has to complete a line.
+      if (!canMakeLine(1) && !canMakeLine(2)) {
+        finishGame("和局", "黑白雙方皆已無法連成五子，對局提前結束。", 0);
+        return true;
+      }
+      return false;
+    }
+    function canMakeLine(player) {
+      const exact = rule === 1 || (rule === 2 && player === 1);
+      const at = (x, y) =>
+        x >= 0 && x < 15 && y >= 0 && y < 15 ? board[y * 15 + x] : 3;
+      for (const [dx, dy] of [
+        [1, 0],
+        [0, 1],
+        [1, 1],
+        [1, -1],
+      ]) {
+        for (let y = inset; y < inset + size; y++) {
+          for (let x = inset; x < inset + size; x++) {
+            if (
+              exact &&
+              (at(x - dx, y - dy) === player ||
+                at(x + 5 * dx, y + 5 * dy) === player)
+            )
+              continue;
+            let count = 0;
+            for (; count < 5; count++) {
+              const cell = at(x + count * dx, y + count * dy);
+              if (cell !== 0 && cell !== player) break;
+            }
+            if (count === 5) return true;
+          }
+        }
+      }
+      return false;
+    }
+    function finishGame(title, detail, winner) {
+      finished = true;
+      positionWinner = winner;
+      drawTrend();
+      cancelPonder();
+      msg.textContent = title;
+      resultTitle.textContent = title;
+      resultDetails.textContent = detail;
+      if (!restoring) resultDialog.showModal();
+    }
+    function playPoint(i) {
+      if (finished || turn !== +side.value || board[i] !== 0 || validating)
+        return;
+      if (rule === 2 && turn === 1) {
+        validating = true;
+        worker.postMessage({
+          type: "validate",
+          board,
+          point: i,
+          player: turn,
+          rule,
+        });
+      } else place(i);
+    }
+    // Difficulty presets set the thinking budget and the sampling temperature.
+    const PRESETS = {
+      beginner: { mode: "time", ms: 150, temperature: 1 },
+      easy: { mode: "time", ms: 500, temperature: 1 },
+      normal: { mode: "time", ms: 1000, temperature: 0.25 },
+      hard: { mode: "time", ms: 2000, temperature: 0 },
+    };
+    const difficulty = document.querySelector("#difficulty");
+    const field = (id) => document.getElementById(id);
+    function showBudgetField() {
+      const rounds = field("mode").value === "rounds";
+      field("ms-field").hidden = rounds;
+      field("rounds-field").hidden = !rounds;
+    }
+    function applyPreset() {
+      const preset = PRESETS[difficulty.value];
+      if (!preset) return;
+      field("mode").value = preset.mode;
+      field("ms").value = preset.ms;
+      field("temperature").value = preset.temperature;
+      showBudgetField();
+    }
+    // Manual edits keep a matching preset or switch to "custom".
+    function matchPreset() {
+      const match = Object.entries(PRESETS).find(
+        ([, preset]) =>
+          field("mode").value === preset.mode &&
+          field("ms").valueAsNumber === preset.ms &&
+          field("temperature").valueAsNumber === preset.temperature,
+      );
+      difficulty.value = match ? match[0] : "custom";
+    }
+    // A blank seed draws a new one for each game, shared by search and ponder.
+    let gameSeed = 1;
+    function settings(reportErrors = true) {
+      const config = {
+        rule,
+        level: difficulty.selectedOptions[0].textContent,
+        ponder: field("ponder").checked,
+        ponderSeconds: Number(field("ponder-seconds").value),
+        batch: Number(field("batch").value),
+        leaves: Number(field("leaves").value),
+        threads: Number(field("threads").value),
+        formula: field("formula").value,
+        policy: field("rollout").value === "policy",
+        mode: field("mode").value,
+      };
+      for (const id of ["ms", "rounds", "temperature", "explore", "seed"]) {
+        const input = field(id);
+        if (id === "seed" && !input.value) {
+          config.seed = gameSeed;
+          config.randomSeed = true;
+          continue;
+        }
+        if (!input.value || !input.checkValidity()) {
+          if (reportErrors) input.reportValidity();
+          return null;
+        }
+        config[id] = input.valueAsNumber;
+      }
+      return config;
+    }
+    const point = (i) =>
+      column((i % 15) - inset) + (1 + Math.floor(i / 15) - inset);
+    const number = (value) => value.toLocaleString("zh-TW");
+    const element = (tag, text, className) => {
+      const node = document.createElement(tag);
+      if (text !== undefined) node.textContent = text;
+      if (className) node.className = className;
+      return node;
+    };
+    // The search log lists AI moves; the detail view shows the selected one.
+    let selectedLog = -1;
+    let showAllCandidates = false;
+    // The board ring appears only after the player clicks a log entry.
+    let logPinned = false;
+    function logOutcome(data) {
+      const proof = {
+        win: ["已證明 AI 必勝", "win"],
+        loss: ["已證明 AI 必敗", "loss"],
+        draw: ["已證明和局", ""],
+      }[data.proven];
+      if (proof) return proof;
+      const { total, wins, draws } = data.selected;
+      if (total)
+        return [
+          `玩家隨機模擬勝率 ${percentage(total - wins - draws, total)}`,
+          "",
+        ];
+      return [data.rounds ? "採用著點未模擬" : data.reason, ""];
+    }
+    function renderLogs() {
+      const entries = history.flatMap((move, index) =>
+        move.result ? [{ move, index }] : [],
+      );
+      if (!entries.some(({ index }) => index === selectedLog))
+        selectedLog = entries.at(-1)?.index ?? -1;
+      const list = document.querySelector("#log-list");
+      list.replaceChildren(
+        ...entries.reverse().map(({ move, index }) => {
+          const button = element("button");
+          button.type = "button";
+          button.setAttribute("aria-current", String(index === selectedLog));
+          button.append(
+            element("span", `第 ${index + 1} 手 · ${point(move.point)}`),
+            element("small", logOutcome(move.result)[0], "log-empty"),
+          );
+          button.onclick = () => {
+            // Clicking the ringed entry again hides the ring.
+            logPinned = !(logPinned && selectedLog === index);
+            selectedLog = index;
+            showAllCandidates = false;
+            renderLogs();
+            draw();
+          };
+          const item = element("li");
+          item.append(button);
+          return item;
+        }),
+      );
+      renderLogDetail(history[selectedLog]);
+    }
+    function renderLogDetail(move) {
+      const detail = document.querySelector("#log-detail");
+      if (!move) {
+        detail.replaceChildren(
+          element("p", "AI 落子後，這裡會顯示該手的搜尋結果。", "log-empty"),
+        );
+        return;
+      }
+      const data = move.result;
+      const heading = element("div", undefined, "log-heading");
+      const [outcome, tone] = logOutcome(data);
+      heading.append(
+        element(
+          "h3",
+          `第 ${history.indexOf(move) + 1} 手 · ${point(data.i)}（AI ${move.player === 1 ? "黑" : "白"}）`,
+        ),
+        element("span", outcome, `log-badge ${tone}`),
+      );
+      const metrics = element("dl", undefined, "log-metrics");
+      const addMetrics = (list, entries) => {
+        for (const [label, value] of entries) {
+          const item = element("div");
+          item.append(element("dt", label), element("dd", value));
+          list.append(item);
+        }
+      };
+      addMetrics(metrics, [
+        ["決策方式", data.reason],
+        ["運算後端", data.backend],
+        ["搜尋耗時", `${data.elapsed.toFixed(0)} ms`],
+        ...(data.rounds || data.reusedSimulations
+          ? [
+              ["搜尋輪數", number(data.rounds)],
+              ["模擬總數", number(data.simulations)],
+              ["沿用先前搜尋", `${number(data.reusedSimulations ?? 0)} 場`],
+              ["最大深度", number(data.depth)],
+              [
+                "採用著點的玩家勝場",
+                data.selected.total
+                  ? `${number(data.selected.total - data.selected.wins - data.selected.draws)} / ${number(data.selected.total)}`
+                  : "—",
+              ],
+            ]
+          : []),
+        ...(data.gpuMs > 0
+          ? [
+              ["GPU 批次往返", `${data.gpuMs.toFixed(0)} ms`],
+              [
+                "其餘搜尋",
+                `${Math.max(0, data.elapsed - data.gpuMs).toFixed(0)} ms`,
+              ],
+            ]
+          : []),
+      ]);
+      const parts = [heading, metrics];
+      if (data.children.length) {
+        const table = element("table", undefined, "log-table");
+        table.createCaption().textContent = `候選著點（共 ${data.children.length} 個）`;
+        const header = table.createTHead().insertRow();
+        for (const label of ["著點", "模擬場數", "平均得分", "證明"]) {
+          const cell = element("th", label);
+          cell.scope = "col";
+          header.append(cell);
+        }
+        const body = table.createTBody();
+        const shown = showAllCandidates
+          ? data.children
+          : data.children.slice(0, 10);
+        for (const child of shown) {
+          const row = body.insertRow();
+          const chosen = child.i === data.i;
+          if (chosen) row.className = "selected";
+          const coordinate = element(
+            "th",
+            point(child.i) + (chosen ? "（採用）" : ""),
+          );
+          coordinate.scope = "row";
+          row.append(coordinate);
+          row.insertCell().textContent = number(child.n);
+          row.insertCell().textContent = (child.w / child.n).toFixed(3);
+          const proof = { win: "必勝", loss: "必敗", draw: "必和" }[
+            child.proven
+          ];
+          row.insertCell().textContent = proof
+            ? `${proof} · ${child.plies + 1} 手`
+            : "—";
+        }
+        parts.push(table);
+        if (data.children.length > 10) {
+          const more = element(
+            "button",
+            showAllCandidates
+              ? "只顯示前 10 個"
+              : `顯示全部 ${data.children.length} 個`,
+            "log-more",
+          );
+          more.type = "button";
+          more.onclick = () => {
+            showAllCandidates = !showAllCandidates;
+            renderLogDetail(move);
+          };
+          parts.push(more);
+        }
+      }
+      const c = data.config;
+      parts.push(
+        element(
+          "p",
+          `平均得分以勝 1、和 0.5、負 0 計算；證明的手數含該著點，必敗時 AI 選撐最久的著點。` +
+            ` 本手設定：${c.level ?? "—"} · ${c.mode === "time" ? `${c.ms} ms` : `${number(c.rounds)} 輪`} · 溫度 ${c.temperature ?? 0} · 每輪 ${number(c.batch)} 場${data.backend === "Rust wgpu" ? ` · GPU 每次派送 ${data.leaves || c.leaves} 個葉節點${c.leaves ? "" : "（自動）"}` : ""} · ${data.threads ?? 1} 個執行緒 · ${c.policy ? "連五與擋五模擬" : "隨機模擬"} · ${c.formula === "uct" ? "UCT" : "PUCT"} 探索係數 ${c.explore} · 種子 ${c.seed}${c.randomSeed ? "（隨機）" : ""}`,
+          "log-note",
+        ),
+      );
+      if (data.fallback)
+        parts.push(element("p", `CPU 備援原因：${data.fallback}`, "log-note"));
+      detail.replaceChildren(...parts);
+    }
+    let waiting = false;
+    const ponderStatus = document.querySelector("#ponder-status");
+    function clearHint() {
+      hintMoves = [];
+      hint.hidden = true;
+      hintList.replaceChildren();
+      draw();
+    }
+    // Statistics come from the AI's view: a root loss is a player win.
+    function showHint(values) {
+      const moves = [];
+      for (let j = 0; j + 8 <= values.length; j += 8) {
+        const n = values[j + 1];
+        if (!n) continue;
+        moves.push({
+          i: values[j],
+          n,
+          rate: 1 - values[j + 2] / (2 * n),
+          proof: ["", "win", "draw", "loss"][values[j + 3]],
+          plies: values[j + 4],
+        });
+      }
+      const rank = { win: 2, "": 1, draw: 1, loss: 0 };
+      moves.sort(
+        (a, b) =>
+          rank[b.proof] - rank[a.proof] ||
+          (a.proof === "win" ? a.plies - b.plies : 0) ||
+          b.n - a.n,
+      );
+      hintProofs = new Map(
+        moves.filter((m) => m.proof).map((m) => [m.i, m.proof]),
+      );
+      hintMoves = moves.slice(0, 5);
+      hint.hidden = hintMoves.length === 0;
+      // One compact row per move: rank, point, outcome, simulations.
+      const games = (n) =>
+        n >= 10000 ? `${(n / 10000).toFixed(1)} 萬場` : `${number(n)} 場`;
+      hintList.replaceChildren(
+        ...hintMoves.map((m, k) => {
+          const row = element("li");
+          row.append(
+            element("span", String(k + 1), "rank"),
+            element("strong", point(m.i)),
+            element(
+              "span",
+              m.proof === "win"
+                ? `必勝（${m.plies} 手內）`
+                : m.proof === "loss"
+                  ? "會輸"
+                  : `勝率 ${Math.round(100 * m.rate)}%`,
+            ),
+            element("span", m.proof ? "" : games(m.n), "count"),
+          );
+          return row;
+        }),
+      );
+      if (hintOpen()) draw();
+    }
+    hint.addEventListener("toggle", draw);
+    let ponderTimer;
+    let ponderRequest = 0;
+    function cancelPonder() {
+      clearTimeout(ponderTimer);
+      ponderRequest++;
+      worker?.postMessage({ type: "cancel-ponder" });
+      ponderStatus.textContent = "";
+      clearHint();
+    }
+    function ponder() {
+      if (!ready || finished || turn !== +side.value || history.length === 0)
+        return;
+      cancelPonder();
+      const config = settings(false);
+      if (!config || !config.ponder) {
+        ponderStatus.textContent = config?.ponder
+          ? "預先搜尋暫停"
+          : "預先搜尋已關閉";
+        return;
+      }
+      const request = ponderRequest;
+      ponderTimer = setTimeout(() => {
+        if (request !== ponderRequest || finished || turn !== +side.value)
+          return;
+        ponderStatus.textContent = "準備預先搜尋…";
+        worker.postMessage({
+          type: "ponder",
+          board,
+          root: 3 - turn,
+          // The AI's last move rebuilds its tree when the worker has none.
+          last: history.at(-1)?.point,
+          config,
+          request,
+        });
+      }, 150);
+    }
+    function settingsChanged() {
+      if (waiting) next();
+      else ponder();
+    }
+    for (const fieldset of document.querySelectorAll(".search-fieldset"))
+      fieldset.onchange = (event) => {
+        if (["mode", "ms", "temperature"].includes(event.target.id))
+          matchPreset();
+        showBudgetField();
+        settingsChanged();
+      };
+    difficulty.onchange = () => {
+      applyPreset();
+      settingsChanged();
+    };
+    function next() {
+      if (finished) return;
+      if (worker && history.length) {
+        worker.postMessage({
+          type: "position-evaluation",
+          board,
+          player: turn,
+          rule,
+          request: ++positionRequest,
+        });
+      }
+      if (turn === +side.value) {
+        msg.textContent = "輪到你落子";
+        if (rule === 2 && turn === 1 && !validating && history.length > 0) {
+          validating = true;
+          worker.postMessage({ type: "check-black", board });
+        }
+        ponder();
+        return;
+      }
+      if (!ready) {
+        msg.textContent = "等待模擬裝置就緒";
+        return;
+      }
+      const config = settings();
+      waiting = !config;
+      if (waiting) {
+        msg.textContent = "請修正搜尋設定";
+        return;
+      }
+      msg.textContent = "AI 思考中…";
+      clearTimeout(ponderTimer);
+      ponderRequest++;
+      ponderStatus.textContent = "";
+      clearHint();
+      worker.postMessage({ board, root: turn, config });
+    }
+    const device = document.querySelector("#device"),
+      backendStatus = document.querySelector("#backend"),
+      backendDetails = document.querySelector("#backend-details");
+    function showBackend(name, reason) {
+      const label = "模擬後端：" + name;
+      backendStatus.textContent = label;
+      backendDetails.textContent = reason ? label + " · " + reason : label;
+    }
+    function connect() {
+      cancelPonder();
+      ready = false;
+      validating = false;
+      waiting = false;
+      showBackend("連線中…");
+      ponderStatus.textContent = "";
+      worker?.terminate();
+      worker = new Worker(url);
+      const active = worker;
+      worker.onmessage = ({ data }) => {
+        if (active !== worker) return;
+        if (data.type === "position-evaluation") {
+          // Keep a solver proof when the short check finds nothing.
+          if (!finished && data.request === positionRequest && data.winner) {
+            positionWinner = data.winner;
+            drawTrend();
+          }
+          return;
+        }
+        if (data.type === "ponder-status") {
+          if (
+            data.request !== ponderRequest ||
+            finished ||
+            turn !== +side.value ||
+            !document.querySelector("#ponder").checked
+          )
+            return;
+          if (data.reason) clearHint();
+          else showHint(data.hint ?? []);
+          ponderStatus.textContent = data.reason
+            ? `預先搜尋 · ${data.reason}`
+            : data.state === "done"
+              ? // Pondering stops early once the result is proven.
+                hintMoves[0]?.proof === "win"
+                ? "搜尋完畢 · 已證明你必勝"
+                : "搜尋完畢"
+              : `預先搜尋中 · 已模擬 ${data.simulations.toLocaleString("zh-TW")} 場`;
+          return;
+        }
+        if (data.type === "black-checked") {
+          validating = false;
+          if (!data.legal) finishGame("AI 獲勝", "黑棋已無合法落點。", 2);
+          return;
+        }
+        if (data.type === "validated") {
+          validating = false;
+          if (data.legal) place(data.point);
+          else msg.textContent = "黑棋禁手，請改選其他位置";
+          return;
+        }
+        if (data.type === "no-moves") {
+          finishGame(
+            turn === +side.value ? "AI 獲勝" : "你獲勝了",
+            "黑棋已無合法落點。",
+            2,
+          );
+          return;
+        }
+        if (data.type === "backend") {
+          showBackend(data.name, data.reason);
+          if (data.initial) {
+            ready = data.available;
+            if (ready) next();
+            else if (!finished) msg.textContent = "請切換模擬裝置";
+          }
+          return;
+        }
+        if (data.error) {
+          msg.textContent = data.error;
+          finished = true;
+          return;
+        }
+        place(data.i, data);
+      };
+      worker.onerror = () => {
+        if (active !== worker) return;
+        msg.textContent = "AI 執行失敗，請重新開局";
+        finished = true;
+      };
+      worker.postMessage({ type: "connect", device: device.value, rule });
+      next();
+    }
+    device.onchange = connect;
+    function updateHistoryButtons() {
+      undo.disabled = !history.some((move) => move.player === +side.value);
+      redo.disabled = redoHistory.length === 0;
+      recordCode.value = encodeRecord();
+      document.querySelector("#move-count").textContent =
+        `${size}×${size} · ${history.length} 手`;
+      renderLogs();
+      saveGame();
+    }
+    // Game record: base64url bytes. Byte 0 holds version (bits 5-7), player side
+    // (bit 4), rule (bits 2-3) and board size (bits 0-1); each later byte is one
+    // move as row * size + column on the visible board.
+    const SIZES = [9, 13, 15];
+    const recordCode = document.querySelector("#record-code");
+    const recordInput = document.querySelector("#record-input");
+    const recordStatus = document.querySelector("#record-status");
+    function encodeRecord() {
+      if (!size) return "";
+      const bytes = [
+        (1 << 5) | ((+side.value - 1) << 4) | (rule << 2) | SIZES.indexOf(size),
+        ...history.map(
+          ({ point }) =>
+            (Math.floor(point / 15) - inset) * size + (point % 15) - inset,
+        ),
+      ];
+      return btoa(String.fromCharCode(...bytes))
+        .replaceAll("+", "-")
+        .replaceAll("/", "_")
+        .replace(/=+$/, "");
+    }
+    function decodeRecord(text) {
+      if (!/^[A-Za-z0-9_-]+$/.test(text)) throw Error("棋譜含有無效字元");
+      const bytes = Uint8Array.from(
+        atob(text.replaceAll("-", "+").replaceAll("_", "/")),
+        (c) => c.charCodeAt(0),
+      );
+      const header = bytes[0];
+      if (header >> 5 !== 1) throw Error("不支援的棋譜版本");
+      const game = {
+        size: SIZES[header & 3],
+        rule: (header >> 2) & 3,
+        side: ((header >> 4) & 1) + 1,
+        moves: [...bytes.subarray(1)],
+      };
+      if (!game.size || game.rule > 2) throw Error("棋譜設定無效");
+      if (game.moves.some((move) => move >= game.size ** 2))
+        throw Error("棋譜落點超出棋盤");
+      return game;
+    }
+    function loadRecord(text) {
+      let game;
+      try {
+        game = decodeRecord(text.trim());
+      } catch (error) {
+        recordStatus.textContent = "無法載入：" + error.message;
+        return;
+      }
+      sizeSelect.value = game.size;
+      ruleSelect.value = game.rule;
+      side.value = game.side;
+      const error = startGame(game.moves);
+      saveSettings();
+      recordStatus.textContent = error
+        ? "無法載入：" + error
+        : `已載入 ${game.moves.length} 手`;
+      if (!error) recordInput.value = "";
+    }
+    document.querySelector("#record-load").onclick = () =>
+      loadRecord(recordInput.value);
+    recordInput.onkeydown = (e) => {
+      if (e.key === "Enter") loadRecord(recordInput.value);
+    };
+    document.querySelector("#record-file").onchange = async (e) => {
+      const file = e.target.files[0];
+      e.target.value = "";
+      if (file) loadRecord(await file.text());
+    };
+    document.querySelector("#record-copy").onclick = () =>
+      navigator.clipboard.writeText(recordCode.value).then(
+        () => (recordStatus.textContent = "已複製棋譜"),
+        () => {
+          recordCode.select();
+          recordStatus.textContent = "請手動複製選取的文字";
+        },
+      );
+    document.querySelector("#record-download").onclick = () => {
+      const link = document.createElement("a");
+      link.href = URL.createObjectURL(
+        new Blob([recordCode.value + "\n"], { type: "text/plain" }),
+      );
+      const stamp = new Date()
+        .toLocaleString("sv")
+        .replace(/\D/g, "")
+        .slice(0, 12);
+      link.download = `gomoku-${stamp}.txt`;
+      link.click();
+      setTimeout(() => URL.revokeObjectURL(link.href), 0);
+    };
+    function restoreHistory(reconnect) {
+      last = history.at(-1)?.point ?? -1;
+      logPinned = false;
+      updateHistoryButtons();
+      draw();
+      drawTrend();
+      if (reconnect) connect();
+      else next();
+    }
+    undo.onclick = () => {
+      const player = +side.value;
+      const target = history.findLastIndex((move) => move.player === player);
+      if (target < 0) return;
+      const reconnect = validating || (!finished && turn !== player);
+      cancelPonder();
+      if (resultDialog.open) resultDialog.close();
+      clearPositionResult();
+      const removed = history.splice(target);
+      for (const move of removed) {
+        board[move.point] = 0;
+      }
+      redoHistory.push(removed);
+      turn = player;
+      finished = false;
+      restoreHistory(reconnect);
+    };
+    redo.onclick = () => {
+      const moves = redoHistory.pop();
+      if (!moves) return;
+      const reconnect = validating;
+      cancelPonder();
+      for (const move of moves) {
+        history.push(move);
+        board[move.point] = move.player;
+      }
+      clearPositionResult();
+      const finalMove = moves.at(-1);
+      turn = finalMove.player;
+      if (!checkOutcome(finalMove.point)) turn = 3 - turn;
+      restoreHistory(reconnect);
+    };
+    const reset = () => startGame([]);
+    // Start a game and replay recorded moves. Returns an error message, if any.
+    function startGame(moves) {
+      if (resultDialog.open) resultDialog.close();
+      clearPositionResult();
+      history.length = 0;
+      redoHistory.length = 0;
+      updateHistoryButtons();
+      selectedLog = -1;
+      logPinned = false;
+      gameSeed = Math.floor(Math.random() * 2 ** 32);
+      size = +sizeSelect.value;
+      inset = (15 - size) / 2;
+      rule = +ruleSelect.value;
+      document.querySelector("#rules-note").hidden = rule !== 2;
+      device.disabled = rule === 2;
+      board = new Uint8Array(225).fill(3);
+      for (let y = 0; y < size; y++)
+        board.fill(0, index(0, y), index(0, y) + size);
+      cursor = 112;
+      turn = 1;
+      last = -1;
+      finished = false;
+      for (const [k, local] of moves.entries()) {
+        const i = index(local % size, Math.floor(local / size));
+        if (board[i] !== 0)
+          return startGame([]) || `第 ${k + 1} 手落在已有棋子的位置`;
+        board[i] = turn;
+        last = i;
+        history.push({
+          point: i,
+          player: turn,
+          result: null,
+          simulations: 0,
+          wins: 0,
+          draws: 0,
+        });
+        if (k === moves.length - 1) {
+          if (!checkOutcome(i)) turn = 3 - turn;
+        } else if (won(board, i, turn) || board.every(Boolean)) {
+          return startGame([]) || `第 ${k + 1} 手已分出勝負`;
+        } else turn = 3 - turn;
+      }
+      updateHistoryButtons();
+      draw();
+      drawTrend();
+      connect();
+      return "";
+    }
+    canvas.onclick = (e) => {
+      const r = canvas.getBoundingClientRect();
+      const x = Math.round(
+        (((e.clientX - r.left) * 750) / r.width - margin) / spacing(),
+      );
+      const y = Math.round(
+        (((e.clientY - r.top) * 750) / r.height - margin) / spacing(),
+      );
+      keyboard = false;
+      if (x >= 0 && x < size && y >= 0 && y < size) playPoint(index(x, y));
+    };
+    document.addEventListener("keydown", (e) => {
+      if (
+        e.defaultPrevented ||
+        e.isComposing ||
+        e.altKey ||
+        e.ctrlKey ||
+        e.metaKey ||
+        e.shiftKey ||
+        resultDialog.open
+      )
+        return;
+      const onBoard = e.target === canvas;
+      if (!onBoard && e.target !== document.body) return;
+      const directions = {
+        ArrowLeft: [-1, 0],
+        ArrowRight: [1, 0],
+        ArrowUp: [0, -1],
+        ArrowDown: [0, 1],
+      };
+      if (Object.hasOwn(directions, e.key)) {
+        e.preventDefault();
+        if (!onBoard) canvas.focus({ preventScroll: true });
+        const [dx, dy] = directions[e.key];
+        const clamp = (v) => Math.max(0, Math.min(size - 1, v));
+        keyboard = true;
+        cursor = index(
+          clamp((cursor % 15) - inset + dx),
+          clamp(Math.floor(cursor / 15) - inset + dy),
+        );
+        draw();
+      } else if (e.key === "Enter" && (onBoard || keyboard)) {
+        e.preventDefault();
+        if (!e.repeat) playPoint(cursor);
+      }
+    });
+    sizeSelect.onchange = ruleSelect.onchange = reset;
+    side.onchange = reset;
+    document.querySelector("#play-again").onclick = document.querySelector(
+      "#reset",
+    ).onclick = () => {
+      reset();
+      canvas.focus({ preventScroll: true });
+    };
+    // Settings and the current game, with its search logs, are saved in this
+    // browser and restored on load. Storage may be unavailable or hold stale data.
+    const STORAGE = {
+      settings: "gomoku.settings.v1",
+      game: "gomoku.game.v1",
+    };
+    const SAVED_FIELDS = [
+      "difficulty",
+      "mode",
+      "ms",
+      "rounds",
+      "temperature",
+      "ponder-seconds",
+      "batch",
+      "leaves",
+      "threads",
+      "rollout",
+      "formula",
+      "explore",
+      "seed",
+      "device",
+      "side",
+      "size",
+      "rule",
+    ];
+    let restoring = false;
+    function readStorage(key) {
+      try {
+        return JSON.parse(localStorage.getItem(key));
+      } catch {
+        return null;
+      }
+    }
+    function writeStorage(key, value) {
+      try {
+        localStorage.setItem(key, JSON.stringify(value));
+      } catch {
+        // Private windows or a full quota: keep playing without saving.
+      }
+    }
+    function saveSettings() {
+      const values = Object.fromEntries(
+        SAVED_FIELDS.map((id) => [id, field(id).value]),
+      );
+      values.ponder = field("ponder").checked;
+      writeStorage(STORAGE.settings, values);
+    }
+    function restoreSettings() {
+      const values = readStorage(STORAGE.settings);
+      if (!values || typeof values !== "object") return;
+      for (const id of SAVED_FIELDS) {
+        const input = field(id);
+        const value = values[id];
+        if (typeof value !== "string") continue;
+        if (
+          input.tagName === "SELECT" &&
+          ![...input.options].some((option) => option.value === value)
+        )
+          continue;
+        input.value = value;
+      }
+      if (typeof values.ponder === "boolean")
+        field("ponder").checked = values.ponder;
+      // Settings saved before PUCT keep UCT's constant; start them on PUCT's.
+      if (values.formula === undefined && values.explore === "1.414")
+        field("explore").value = "0.5";
+      showBudgetField();
+    }
+    // Each formula has its own default constant.
+    field("formula").addEventListener("change", () => {
+      field("explore").value =
+        field("formula").value === "uct" ? "1.414" : "0.5";
+    });
+    function saveGame() {
+      if (restoring || !size) return;
+      writeStorage(STORAGE.game, {
+        code: encodeRecord(),
+        results: history.map((move) => move.result),
+      });
+    }
+    function restoreGame() {
+      const saved = readStorage(STORAGE.game);
+      let game;
+      try {
+        game = decodeRecord(saved?.code ?? "");
+      } catch {
+        return false;
+      }
+      if (!game.moves.length) return false;
+      sizeSelect.value = game.size;
+      ruleSelect.value = game.rule;
+      side.value = game.side;
+      restoring = true;
+      const error = startGame(game.moves);
+      restoring = false;
+      if (error) return false;
+      history.forEach((move, k) => {
+        const result = saved.results?.[k];
+        if (
+          !result?.selected ||
+          !Array.isArray(result.children) ||
+          !result.config
+        )
+          return;
+        move.result = result;
+        move.simulations = result.selected.total;
+        move.wins = result.selected.wins;
+        move.draws = result.selected.draws;
+      });
+      updateHistoryButtons();
+      draw();
+      drawTrend();
+      return true;
+    }
+    for (const id of ["search-settings", "game-record"]) {
+      const dialog = document.getElementById(id);
+      document.getElementById("open-" + id).onclick = () => dialog.showModal();
+    }
+    restoreSettings();
+    applyPreset();
+    if (!restoreGame()) reset();
+    document.addEventListener("change", saveSettings);
+    new ResizeObserver(draw).observe(canvas);
+    new ResizeObserver(drawTrend).observe(chart);
+    window.addEventListener("resize", draw);
+    window.addEventListener("resize", drawTrend);
+  </script>
+</html>

@@ -1,0 +1,22 @@
+[package]
+name = "gomoku"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+wasm-bindgen = "=0.2.130"
+wasm-bindgen-futures = "0.4"
+wgpu = { version = "30", default-features = false, features = ["webgpu", "wgsl"] }
+futures-channel = "0.3"
+
+[profile.release]
+# Rollouts are CPU bound; "3" measured faster than "s" for a ~4% larger wasm.
+opt-level = 3
+lto = true
+
+[target.'cfg(target_os = "macos")'.dev-dependencies]
+wgpu = { version = "30", default-features = false, features = ["metal"] }
+pollster = "0.4"
