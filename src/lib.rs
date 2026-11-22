@@ -161,6 +161,16 @@ thread_local! {
     static LEGACY_TRANSPOSITIONS: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
     static LEGACY_VCF: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
     static LEGACY_VCT: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+    static LEGACY_VCF_DEFENSE: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+// Strength comparisons can keep every candidate facing an enemy VCF.
+#[cfg(test)]
+fn legacy_vcf_defense() -> bool {
+    LEGACY_VCF_DEFENSE.with(|flag| flag.get()) || legacy_vcf()
+}
+#[cfg(not(test))]
+fn legacy_vcf_defense() -> bool {
+    false
 }
 #[cfg(test)]
 fn legacy_vct() -> bool {
@@ -235,9 +245,10 @@ fn scored_candidates_with(
             *row |= columns;
         }
     }
+    let stats = windows.point_stats();
     let mut wins = vec![];
     let mut blocks = vec![];
-    let mut near = vec![];
+    let mut near = Vec::with_capacity(225);
     for (y, mut columns) in neighborhoods.into_iter().enumerate() {
         columns &= 0x7fff;
         while columns != 0 {
@@ -247,7 +258,7 @@ fn scored_candidates_with(
             if b[i] != 0 || !rules::legal(b, i, p, rule) {
                 continue;
             }
-            let scan = windows.scan(i, p);
+            let scan = stats.scan(i, p);
             // An open window of four is a five; exact-five rules check the line.
             let exact = |q: u8| rule == 0 || (rule == 2 && q == 2) || won(b, i, q, rule);
             if scan.five[0] && exact(p) {
@@ -267,7 +278,7 @@ fn scored_candidates_with(
         let zeros = vec![0; blocks.len()];
         return (blocks, true, zeros);
     }
-    let mut ranked = Vec::new();
+    let mut ranked = Vec::with_capacity(near.len());
     let mut enemy_forks = Vec::new();
     for &(i, scan) in &near {
         // Winning replies need an open four, and a fork needs two of them.
@@ -303,6 +314,15 @@ fn scored_candidates_with(
                 if four.is_some() && !legacy {
                     return true;
                 }
+                // A stone sharing no window with a fork point leaves that fork
+                // intact. Renju is the exception: it can change whether black's
+                // replies are forbidden.
+                if !legacy
+                    && !(rule == 2 && p == 2)
+                    && enemy_forks.iter().any(|&j| j != i && !aligned(i, j))
+                {
+                    return false;
+                }
                 after[i] = p;
                 windows.place(i, p);
                 let stops = enemy_forks.iter().all(|&j| {
@@ -324,12 +344,39 @@ fn scored_candidates_with(
             ranked = defenses;
         }
     }
-    ranked.sort_by_key(|&(i, _, value)| {
-        (
-            std::cmp::Reverse(value),
-            ((i % 15) as i32 - 7).pow(2) + ((i / 15) as i32 - 7).pow(2),
-            i,
-        )
+    // Facing an enemy VCF (a win by fours if this player passed), keep only the
+    // moves that may stop it. Every other move leaves the whole line playable,
+    // so it loses, and the defenses form a complete set. Under five-or-more no
+    // stone changes which moves are legal, so the line stays valid.
+    if rule == 0 && enemy_forks.is_empty() && !legacy && !legacy_vcf_defense() {
+        if let Some(line) = vcf::vcf_line(b, windows.clone(), 3 - p, rule, NODE_VCF_NODES) {
+            let relevant = vcf_defenses(b, windows, p, &line);
+            let mut near = [false; 225];
+            let mut defenses: Vec<_> = ranked
+                .iter()
+                .copied()
+                .filter(|&(i, _, _)| {
+                    near[i] = true;
+                    relevant[i]
+                })
+                .collect();
+            // Cells of the line far from every stone are defenses too.
+            for i in (0..225).filter(|&i| relevant[i] && b[i] == 0 && !near[i]) {
+                defenses.push((i, None, stats.scan(i, p).value));
+            }
+            if defenses.is_empty() {
+                all_lose = true;
+            } else {
+                complete = true;
+                ranked = defenses;
+            }
+        }
+    }
+    // Highest score first, then nearest the centre, then by point. Packed into
+    // one key, which is unique per point.
+    ranked.sort_unstable_by_key(|&(i, _, value)| {
+        let centre = ((i % 15) as i32 - 7).pow(2) + ((i / 15) as i32 - 7).pow(2);
+        (u64::from(!value) << 32) | ((centre as u64) << 8) | i as u64
     });
     let mut values: Vec<u32> = ranked.iter().map(|&(_, _, value)| value).collect();
     let mut near: Vec<usize> = ranked.into_iter().map(|(i, _, _)| i).collect();
@@ -345,6 +392,43 @@ fn scored_candidates_with(
         return (near, all_lose, values);
     }
     (near, complete || all_lose, values)
+}
+// Cells where a move by `p` may stop the enemy VCF `line`: the cells of the
+// line, the fours of `p`, which the attacker must answer, and the cells of
+// windows still free of the attacker's stones that `p`'s stone and the forced
+// replies could fill to four, giving `p` a five threat partway through the
+// line. A move anywhere else leaves every step of the line as it was.
+fn vcf_defenses(b: &Board, windows: &Windows, p: u8, line: &vcf::Line) -> [bool; 225] {
+    let mut relevant = [false; 225];
+    let mut replies = [false; 225];
+    for &i in &line.attacker {
+        relevant[i] = true;
+    }
+    for &i in &line.defender {
+        replies[i] = true;
+        relevant[i] = true;
+    }
+    for i in windows.four_points(b, p) {
+        relevant[i] = true;
+    }
+    for &r in &line.defender {
+        for (id, own) in windows.open_through(r, p) {
+            let filled = Windows::cells(id).filter(|&i| replies[i]).count();
+            if usize::from(own) + filled + 1 >= 4 {
+                for i in Windows::cells(id) {
+                    relevant[i] = true;
+                }
+            }
+        }
+    }
+    relevant
+}
+// Whether two points lie on one line within four squares, the reach of a
+// five-cell window.
+fn aligned(i: usize, j: usize) -> bool {
+    let dx = (i % 15).abs_diff(j % 15);
+    let dy = (i / 15).abs_diff(j / 15);
+    dx.max(dy) <= 4 && (dx == 0 || dy == 0 || dx == dy)
 }
 #[cfg(test)]
 fn candidates(b: &Board, p: u8, rule: u8) -> (Vec<usize>, bool) {
@@ -589,6 +673,8 @@ pub struct Search {
     nodes: Vec<Node>,
     path: Vec<usize>,
     leaf: Board,
+    // Window counts of `board`; each selection updates a copy along its path.
+    windows: Windows,
     turn: u8,
     rounds: u32,
     depth: usize,
@@ -665,6 +751,7 @@ impl Search {
             nodes: vec![Node::default()],
             path: vec![],
             leaf: board,
+            windows: Windows::new(&board),
             turn: root,
             rounds: 0,
             depth: 0,
@@ -703,12 +790,12 @@ impl Search {
         self.turn = self.root;
         self.key = self.root_key;
         self.expansion = None;
+        let mut windows = self.windows.clone();
         loop {
             let idx = *self.path.last().unwrap();
             let parent = &mut self.nodes[idx];
             if parent.choices.is_none() {
                 // One set of window counts serves the candidates and the VCF.
-                let mut windows = Windows::new(&self.leaf);
                 let (choices, forced, priors) =
                     self.expand_with(&self.leaf, &mut windows, self.turn);
                 let parent = &mut self.nodes[idx];
@@ -717,9 +804,13 @@ impl Search {
                 parent.priors = priors;
                 // A VCF for the player to move proves the node at once.
                 if self.solver && !legacy_vcf() {
-                    if let Some((_, plies)) =
-                        vcf::vcf_with(&self.leaf, windows, self.turn, self.rule, NODE_VCF_NODES)
-                    {
+                    if let Some((_, plies)) = vcf::vcf_with(
+                        &self.leaf,
+                        windows.clone(),
+                        self.turn,
+                        self.rule,
+                        NODE_VCF_NODES,
+                    ) {
                         let value = if self.turn == self.root { 2 } else { 0 };
                         let node = &mut self.nodes[idx];
                         node.proven = Some(value);
@@ -844,6 +935,7 @@ impl Search {
                 return value.into();
             }
             self.leaf[i] = self.turn;
+            windows.place(i, self.turn);
             let player = self.turn;
             self.turn = 3 - player;
             let value = if won(&self.leaf, i, player, self.rule) {
@@ -1041,6 +1133,7 @@ impl Search {
             .collect();
         self.nodes = nodes;
         self.board = board;
+        self.windows = Windows::new(&board);
         self.root_key = key;
         self.leaf = board;
         self.turn = self.root;
@@ -2178,6 +2271,8 @@ mod search_tests {
         // A VCT search at the root.
         vct: bool,
         prior_power: f64,
+        // Only the moves that may stop an enemy VCF are searched.
+        vcf_defense: bool,
     }
     const ENGINE: Engine = Engine {
         solver: true,
@@ -2195,6 +2290,7 @@ mod search_tests {
         prior_power: 1.5,
         vcf: true,
         vct: true,
+        vcf_defense: true,
     };
 
     thread_local! {
@@ -2208,7 +2304,9 @@ mod search_tests {
     }
     fn self_play(a: Engine, b: Engine, games: u32) -> (u32, u32, u32) {
         let mut result = (0, 0, 0);
-        for game in 0..games {
+        // OFFSET splits one long match across processes.
+        let offset: u32 = std::env::var("OFFSET").map_or(0, |v| v.parse().unwrap());
+        for game in offset..offset + games {
             let mut rng = 0x9e37_79b9u32 ^ (game / 2).wrapping_mul(0x85eb_ca6b);
             let mut next = || {
                 rng ^= rng << 13;
@@ -2235,6 +2333,7 @@ mod search_tests {
                 LEGACY_TRANSPOSITIONS.with(|flag| flag.set(engine.legacy_transpositions));
                 LEGACY_VCF.with(|flag| flag.set(!engine.vcf));
                 LEGACY_VCT.with(|flag| flag.set(!engine.vct));
+                LEGACY_VCF_DEFENSE.with(|flag| flag.set(!engine.vcf_defense));
                 let started = std::time::Instant::now();
                 let seed = next();
                 let slot = &mut kept[usize::from(player - 1)];
@@ -2454,6 +2553,23 @@ mod search_tests {
     }
 
     // PUCT with constant PUCT and prior power POWER against UCT.
+    #[test]
+    #[ignore = "strength match; run with --release --ignored --nocapture"]
+    fn strength_with_vcf_defense() {
+        let rounds = std::env::var("ROUNDS").map_or(200, |v| v.parse().unwrap());
+        let with = Engine { rounds, ..ENGINE };
+        let without = Engine {
+            vcf_defense: false,
+            ..with
+        };
+        let games = std::env::var("GAMES").map_or(100, |v| v.parse().unwrap());
+        let (w, d, l) = self_play(with, without, games);
+        let [a, b] = move_ms();
+        println!(
+            "VCF defense vs all candidates, {rounds} rounds: {w} W / {d} D / {l} L ({a:.1} vs {b:.1} ms per move)"
+        );
+    }
+
     #[test]
     #[ignore = "strength match; run with --release --ignored --nocapture"]
     fn strength_with_puct() {
@@ -2775,6 +2891,52 @@ mod search_tests {
                 }
             }
         }
+    }
+
+    // Every candidate dropped for not stopping an enemy VCF loses to a VCF.
+    #[test]
+    fn moves_dropped_against_a_vcf_lose_to_one() {
+        let mut rng = 11u32;
+        let mut next = |n: u32| {
+            rng ^= rng << 13;
+            rng ^= rng >> 17;
+            rng ^= rng << 5;
+            rng % n
+        };
+        let (mut positions, mut dropped, mut kept) = (0, 0, 0);
+        for _ in 0..4000 {
+            let mut b = [0; 225];
+            let mut p = 1;
+            for _ in 0..10 + next(30) {
+                let i = (3 + next(9)) as usize * 15 + (3 + next(9)) as usize;
+                if b[i] == 0 {
+                    b[i] = p;
+                    if won(&b, i, p, 0) {
+                        b[i] = 0;
+                        break;
+                    }
+                    p = 3 - p;
+                }
+            }
+            let (pruned, forced, _) = scored_candidates(&b, p, 0);
+            LEGACY_VCF_DEFENSE.with(|flag| flag.set(true));
+            let (all, _, _) = scored_candidates(&b, p, 0);
+            LEGACY_VCF_DEFENSE.with(|flag| flag.set(false));
+            if pruned == all {
+                continue;
+            }
+            positions += 1;
+            kept += pruned.len();
+            assert!(forced);
+            for &i in all.iter().filter(|i| !pruned.contains(i)) {
+                dropped += 1;
+                b[i] = p;
+                assert!(vcf::vcf(&b, 3 - p, 0, 100_000).is_some(), "{i} stops it");
+                b[i] = 0;
+            }
+        }
+        assert!(positions > 50, "{positions} positions");
+        println!("{positions} positions: {kept} moves kept, {dropped} dropped");
     }
 
     #[test]

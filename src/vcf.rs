@@ -20,6 +20,8 @@ pub struct Vcf {
     failed: HashMap<u64, u16>,
     // Whether the last iteration stopped anywhere for want of depth.
     cut: bool,
+    // The line found, in no particular order.
+    line: Line,
 }
 
 // The first attacker move of the quickest VCF found within `limit` nodes, and
@@ -35,6 +37,32 @@ pub fn vcf_with(
     rule: u8,
     limit: u32,
 ) -> Option<(usize, u16)> {
+    search(board, windows, attacker, rule, limit).map(|(found, _)| found)
+}
+// The cells of a VCF line: the attacker's moves with the final winning
+// points, and the defender's forced replies.
+#[derive(Default, Debug)]
+pub struct Line {
+    pub attacker: Vec<usize>,
+    pub defender: Vec<usize>,
+}
+// The quickest VCF found, as its cells.
+pub fn vcf_line(
+    board: &Board,
+    windows: Windows,
+    attacker: u8,
+    rule: u8,
+    limit: u32,
+) -> Option<Line> {
+    search(board, windows, attacker, rule, limit).map(|(_, line)| line)
+}
+fn search(
+    board: &Board,
+    windows: Windows,
+    attacker: u8,
+    rule: u8,
+    limit: u32,
+) -> Option<((usize, u16), Line)> {
     // Without a five or a three in an open window there is no four to play.
     if windows.five_points(board, attacker, rule).is_empty()
         && windows.four_points(board, attacker).is_empty()
@@ -51,11 +79,12 @@ pub fn vcf_with(
         limit,
         failed: HashMap::new(),
         cut: false,
+        line: Line::default(),
     };
     for fours in 0..=MAX_FOURS {
         search.cut = false;
         if let Some(found) = search.attack(fours) {
-            return Some(found);
+            return Some((found, search.line));
         }
         // Nothing deeper to find once an iteration ran out of fours, not depth.
         if search.nodes >= search.limit || !search.cut {
@@ -85,6 +114,7 @@ impl Vcf {
             .five_points(&self.board, attacker, rule)
             .first()
         {
+            self.line.attacker.push(five);
             return Some((five, 1));
         }
         if fours == 0 {
@@ -125,6 +155,11 @@ impl Vcf {
             // Two winning points: the defender blocks one, the attacker plays
             // the other.
             if threat.fork {
+                self.place(m, attacker);
+                let fives = self.windows.five_points(&self.board, attacker, rule);
+                self.remove(m, attacker);
+                self.line.attacker.push(m);
+                self.line.attacker.extend(fives);
                 return Some((m, 3));
             }
             self.place(m, attacker);
@@ -139,6 +174,8 @@ impl Vcf {
             };
             self.remove(m, attacker);
             if let Some(plies) = found {
+                self.line.attacker.push(m);
+                self.line.defender.push(reply);
                 return Some((m, plies));
             }
         }

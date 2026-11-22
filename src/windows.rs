@@ -88,48 +88,146 @@ pub struct Threat {
     pub fork: bool,
 }
 
+// Per-point totals of the windows through each point, as `Windows::scan`
+// reports them, indexed by player (0 black, 1 white).
+pub struct PointStats {
+    value: [u32; 225],
+    five: [[bool; 2]; 225],
+    fours: [[u8; 2]; 225],
+}
+impl PointStats {
+    pub fn scan(&self, point: usize, player: u8) -> Scan {
+        let (mine, theirs) = if player == 1 { (0, 1) } else { (1, 0) };
+        Scan {
+            value: self.value[point],
+            five: [self.five[point][mine], self.five[point][theirs]],
+            fours: [self.fours[point][mine], self.fours[point][theirs]],
+        }
+    }
+}
+
+const WORDS: usize = COUNT.div_ceil(64);
+const WEIGHTS: [u32; 5] = [0, 1, 12, 120, 10000];
+
 // Per window, the stones of each player; a blocked cell (3) counts for both.
-pub struct Windows([[u8; 2]; COUNT]);
+// Bit sets mirror the counts so that scans visit only the windows that matter:
+// `open[p][k - 2]` holds the windows open for player p with k of p's stones
+// (k = 2..=4), and `live` the windows holding stones of only one player.
+#[derive(Clone)]
+pub struct Windows {
+    counts: [[u8; 2]; COUNT],
+    open: [[[u64; WORDS]; 3]; 2],
+    live: [u64; WORDS],
+}
 impl Windows {
     pub fn new(board: &Board) -> Self {
-        let mut windows = Self([[0; 2]; COUNT]);
+        let mut windows = Self {
+            counts: [[0; 2]; COUNT],
+            open: [[[0; WORDS]; 3]; 2],
+            live: [0; WORDS],
+        };
+        // Count first, then file each window once.
         for (i, &cell) in board.iter().enumerate() {
-            match cell {
-                1 | 2 => windows.place(i, cell),
-                3 => {
-                    windows.place(i, 1);
-                    windows.place(i, 2);
+            if matches!(cell, 1..=3) {
+                for id in through(i) {
+                    if cell != 2 {
+                        windows.counts[id][0] += 1;
+                    }
+                    if cell != 1 {
+                        windows.counts[id][1] += 1;
+                    }
                 }
-                _ => {}
+            }
+        }
+        for id in 0..COUNT {
+            if windows.counts[id] != [0, 0] {
+                windows.toggle(id);
             }
         }
         windows
     }
+    // Flip the bits that the window's current counts set; called before and
+    // after a count changes, it moves the window to its new sets.
+    fn toggle(&mut self, id: usize) {
+        let (word, bit) = (id / 64, 1u64 << (id % 64));
+        let [black, white] = self.counts[id];
+        for (side, own, enemy) in [(0, black, white), (1, white, black)] {
+            if enemy == 0 && (2..=4).contains(&own) {
+                self.open[side][usize::from(own - 2)][word] ^= bit;
+            }
+        }
+        if (black == 0) != (white == 0) {
+            self.live[word] ^= bit;
+        }
+    }
     pub fn place(&mut self, point: usize, player: u8) {
         for id in through(point) {
-            self.0[id][usize::from(player - 1)] += 1;
+            self.toggle(id);
+            self.counts[id][usize::from(player - 1)] += 1;
+            self.toggle(id);
         }
     }
     pub fn remove(&mut self, point: usize, player: u8) {
         for id in through(point) {
-            self.0[id][usize::from(player - 1)] -= 1;
+            self.toggle(id);
+            self.counts[id][usize::from(player - 1)] -= 1;
+            self.toggle(id);
         }
     }
     fn open(&self, id: usize, player: u8) -> Option<u8> {
         let [own, enemy] = if player == 1 {
-            self.0[id]
+            self.counts[id]
         } else {
-            [self.0[id][1], self.0[id][0]]
+            [self.counts[id][1], self.counts[id][0]]
         };
         (enemy == 0).then_some(own)
     }
+    // The windows of a bit set in increasing order.
+    fn ids(set: &[u64; WORDS]) -> impl Iterator<Item = usize> + '_ {
+        set.iter().enumerate().flat_map(|(word, &bits)| {
+            let mut bits = bits;
+            std::iter::from_fn(move || {
+                (bits != 0).then(|| {
+                    let bit = bits.trailing_zeros() as usize;
+                    bits &= bits - 1;
+                    word * 64 + bit
+                })
+            })
+        })
+    }
+    // `scan` for every point at once: each window holding stones of one player
+    // adds its weight to its five cells.
+    pub fn point_stats(&self) -> PointStats {
+        let mut stats = PointStats {
+            value: [0; 225],
+            five: [[false; 2]; 225],
+            fours: [[0; 2]; 225],
+        };
+        for id in Self::ids(&self.live) {
+            let [black, white] = self.counts[id];
+            let (side, own) = if white == 0 { (0, black) } else { (1, white) };
+            let weight = WEIGHTS[usize::from(own).min(4)];
+            for &cell in &CELLS[id] {
+                let cell = usize::from(cell);
+                stats.value[cell] += weight;
+                match own {
+                    3 => stats.fours[cell][side] += 1,
+                    4.. => stats.five[cell][side] = true,
+                    _ => {}
+                }
+            }
+        }
+        stats
+    }
     // One pass over the windows through an empty point for both players: the
-    // combined score, open fives, and open fours (which may give winning replies).
+    // combined score, open fives, and open fours (which may give winning
+    // replies). `point_stats` gives the same for every point at once.
+    #[cfg(test)]
     pub fn scan(&self, point: usize, player: u8) -> Scan {
         let mine = usize::from(player - 1);
         let mut scan = Scan::default();
         for id in through(point) {
-            let counts = self.0[id];
+            let counts = self.counts[id];
             for (side, own, enemy) in [
                 (0, counts[mine], counts[1 - mine]),
                 (1, counts[1 - mine], counts[mine]),
@@ -137,7 +235,7 @@ impl Windows {
                 if enemy != 0 {
                     continue;
                 }
-                scan.value += [0, 1, 12, 120, 10000][usize::from(own).min(4)];
+                scan.value += WEIGHTS[usize::from(own).min(4)];
                 match own {
                     3 => scan.fours[side] += 1,
                     4.. => scan.five[side] = true,
@@ -150,11 +248,9 @@ impl Windows {
     // Empty points of open windows holding `stones` of the player's stones,
     // each point once, in window order.
     fn gaps(&self, board: &Board, player: u8, stones: u8, out: &mut Vec<usize>) {
-        for (id, cells) in CELLS.iter().enumerate() {
-            if self.open(id, player) != Some(stones) {
-                continue;
-            }
-            for &cell in cells {
+        let set = &self.open[usize::from(player - 1)][usize::from(stones - 2)];
+        for id in Self::ids(set) {
+            for &cell in &CELLS[id] {
                 let cell = usize::from(cell);
                 if board[cell] == 0 && !out.contains(&cell) {
                     out.push(cell);
@@ -203,6 +299,14 @@ impl Windows {
         }
         cells
     }
+    // Windows through `point` as (id, the player's stones), skipping those
+    // holding the opponent's.
+    pub fn open_through(&self, point: usize, player: u8) -> impl Iterator<Item = (usize, u8)> + '_ {
+        through(point).filter_map(move |id| self.open(id, player).map(|own| (id, own)))
+    }
+    pub fn cells(id: usize) -> impl Iterator<Item = usize> {
+        CELLS[id].iter().map(|&cell| usize::from(cell))
+    }
     // Whether a stone at the empty `point` makes five, checking exact-five rules on the board.
     pub fn wins(&self, board: &Board, point: usize, player: u8, rule: u8) -> bool {
         through(point).any(|id| self.open(id, player) == Some(4))
@@ -221,7 +325,7 @@ impl Windows {
                 continue;
             };
             let stones = usize::from(own) + 1;
-            result.value += [0, 1, 12, 120, 10000][stones.min(5) - 1];
+            result.value += WEIGHTS[stones.min(5) - 1];
             if stones != 4 || result.fork {
                 continue;
             }
@@ -263,5 +367,65 @@ mod tests {
         }
         assert_eq!(through(112).count(), 20);
         assert_eq!(through(0).count(), 3);
+    }
+    // After random placements and removals, the bit sets and the per-point
+    // totals agree with counts rebuilt from the board.
+    #[test]
+    fn bit_sets_and_point_totals_follow_the_counts() {
+        let mut rng = 7u32;
+        let mut next = |n: u32| {
+            rng ^= rng << 13;
+            rng ^= rng >> 17;
+            rng ^= rng << 5;
+            rng % n
+        };
+        let mut board = [0; 225];
+        let mut windows = Windows::new(&board);
+        for step in 0..3000 {
+            let i = next(225) as usize;
+            match board[i] {
+                0 => {
+                    let p = 1 + next(2) as u8;
+                    board[i] = p;
+                    windows.place(i, p);
+                }
+                p => {
+                    board[i] = 0;
+                    windows.remove(i, p);
+                }
+            }
+            if step % 50 != 0 {
+                continue;
+            }
+            let fresh = Windows::new(&board);
+            assert_eq!(windows.counts, fresh.counts);
+            assert_eq!(windows.open, fresh.open);
+            assert_eq!(windows.live, fresh.live);
+            let stats = windows.point_stats();
+            for point in (0..225).filter(|&i| board[i] == 0) {
+                for p in [1, 2] {
+                    let (a, b) = (stats.scan(point, p), windows.scan(point, p));
+                    assert_eq!((a.value, a.five, a.fours), (b.value, b.five, b.fours));
+                }
+            }
+            for p in [1, 2] {
+                for stones in 2..=4 {
+                    let mut expected = Vec::new();
+                    for (id, cells) in CELLS.iter().enumerate() {
+                        if windows.open(id, p) == Some(stones) {
+                            for &cell in cells {
+                                let cell = usize::from(cell);
+                                if board[cell] == 0 && !expected.contains(&cell) {
+                                    expected.push(cell);
+                                }
+                            }
+                        }
+                    }
+                    let mut found = Vec::new();
+                    windows.gaps(&board, p, stones, &mut found);
+                    assert_eq!(found, expected);
+                }
+            }
+        }
     }
 }
