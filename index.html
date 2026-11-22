@@ -1609,13 +1609,7 @@
           plies: values[j + 4],
         });
       }
-      const rank = { win: 2, "": 1, draw: 1, loss: 0 };
-      moves.sort(
-        (a, b) =>
-          rank[b.proof] - rank[a.proof] ||
-          (a.proof === "win" ? a.plies - b.plies : 0) ||
-          b.n - a.n,
-      );
+      // The worker sends the moves already ranked best first for the player.
       hintProofs = new Map(
         moves.filter((m) => m.proof).map((m) => [m.i, m.proof]),
       );

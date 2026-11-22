@@ -421,19 +421,74 @@ fn stats_of(moves: &[RootMove]) -> Vec<u32> {
         })
         .collect()
 }
-fn best_of(moves: &[RootMove]) -> i32 {
-    let key = |m: &RootMove| match m.proven {
-        Some(2) => (2, u16::MAX - m.dist, m.n, m.points),
-        Some(0) => (0, m.dist, m.n, m.points),
-        _ => (1, 0, m.n, m.points),
-    };
-    moves
+// Unproven moves with at least this share of the most simulations compete on
+// their score; the rest follow by simulations.
+const SCORE_SHARE: f64 = 0.15;
+// Order moves best first for the side choosing them: the root player when
+// `mine`, else the opponent, whose proofs and scores are reversed. Proven wins
+// lead, quickest first, and proven losses trail, longest first. Between them,
+// moves with enough simulations rank by a lower confidence bound on their
+// score, so a move that overtakes late leads before its count catches up.
+// Each leaf scores `batch` correlated rollouts, so the bound counts leaves,
+// not games. Unsearched moves come last.
+fn ranked(moves: &[RootMove], batch: u32, mine: bool) -> Vec<RootMove> {
+    let proof = |m: &RootMove| m.proven.map(|v| if mine { v } else { 2 - v });
+    let open = |m: &RootMove| m.n > 0 && !matches!(proof(m), Some(0 | 2));
+    let most = moves
         .iter()
+        .filter(|m| open(m))
+        .map(|m| m.n)
+        .max()
+        .unwrap_or(0);
+    let tier = |m: &RootMove| match proof(m) {
+        _ if m.n == 0 => 0,
+        Some(2) => 4,
+        Some(0) => 1,
+        _ if f64::from(m.n) >= SCORE_SHARE * f64::from(most) => 3,
+        _ => 2,
+    };
+    let score = |m: &RootMove| {
+        let q = f64::from(m.points) / (2. * f64::from(m.n));
+        if mine {
+            q
+        } else {
+            1. - q
+        }
+    };
+    // The 5% quantile of a Beta(1, 1) posterior, by normal approximation.
+    let lower = |m: &RootMove| {
+        let leaves = f64::from(m.n) / f64::from(batch.max(1));
+        let (a, b) = (1. + score(m) * leaves, 1. + (1. - score(m)) * leaves);
+        a / (a + b) - 1.645 * (a * b / ((a + b) * (a + b) * (a + b + 1.))).sqrt()
+    };
+    let mut moves = moves.to_vec();
+    moves.sort_by(|a, b| {
+        tier(b)
+            .cmp(&tier(a))
+            .then_with(|| match tier(a) {
+                4 => a.dist.cmp(&b.dist),
+                1 => b.dist.cmp(&a.dist),
+                3 => lower(b).total_cmp(&lower(a)),
+                _ => std::cmp::Ordering::Equal,
+            })
+            .then(b.n.cmp(&a.n))
+            .then_with(|| score(b).total_cmp(&score(a)))
+    });
+    moves
+}
+fn best_of(moves: &[RootMove], batch: u32) -> i32 {
+    ranked(moves, batch, true)
+        .first()
         .filter(|m| m.n > 0)
-        .reduce(|best, m| if key(m) > key(best) { m } else { best })
         .map_or(-1, |m| m.i as i32)
 }
-fn sample_of(moves: &[RootMove], temperature: f64, unit: f64) -> i32 {
+// Order `Search::stats` words best first for the root player (`mine`) or for
+// its opponent, as the AI would choose: for hints and the candidate table.
+#[wasm_bindgen]
+pub fn rank_stats(stats: &[u32], batch: u32, mine: bool) -> Vec<u32> {
+    stats_of(&ranked(&root_moves_of(stats), batch, mine))
+}
+fn sample_of(moves: &[RootMove], temperature: f64, unit: f64, batch: u32) -> i32 {
     let moves: Vec<&RootMove> = moves.iter().filter(|m| m.n > 0).collect();
     let lost = |m: &&RootMove| m.proven == Some(0);
     // Proofs outrank temperature: take the quickest proven win at any
@@ -443,7 +498,7 @@ fn sample_of(moves: &[RootMove], temperature: f64, unit: f64) -> i32 {
         || moves.iter().any(|m| m.proven == Some(2))
         || moves.iter().all(lost)
     {
-        return best_of(&moves.into_iter().copied().collect::<Vec<_>>());
+        return best_of(&moves.into_iter().copied().collect::<Vec<_>>(), batch);
     }
     let moves: Vec<&RootMove> = moves.into_iter().filter(|m| !lost(m)).collect();
     let most = moves.iter().map(|m| m.n).max().unwrap_or(1) as f64;
@@ -498,8 +553,8 @@ pub fn merge_stats(a: &[u32], b: &[u32]) -> Vec<u32> {
 }
 // Choose a move from merged statistics, as `Search::sample_move` would.
 #[wasm_bindgen]
-pub fn pick_move(stats: &[u32], temperature: f64, unit: f64) -> i32 {
-    sample_of(&root_moves_of(stats), temperature, unit)
+pub fn pick_move(stats: &[u32], temperature: f64, unit: f64, batch: u32) -> i32 {
+    sample_of(&root_moves_of(stats), temperature, unit, batch)
 }
 // A node is a position, shared by every move order that reaches it, so the
 // tree is a directed acyclic graph. `children[k]` is the node after `choices[k]`.
@@ -1041,12 +1096,12 @@ impl Search {
     pub fn depth(&self) -> usize {
         self.depth
     }
-    // Prefer the quickest proven win, avoid proven losses (delaying them when all
-    // moves lose), then most simulations and points.
+    // The first move of `ranked`: the quickest proven win, else the best
+    // well-searched move, avoiding proven losses (delaying them when all lose).
     pub fn best_move(&self) -> i32 {
         match self.vcf_move.filter(|_| self.solver) {
             Some((point, _)) => point as i32,
-            None => best_of(&self.root_moves()),
+            None => best_of(&self.root_moves(), self.unit),
         }
     }
     // Sample a root move with probability proportional to N^(1 / temperature).
@@ -1056,7 +1111,7 @@ impl Search {
         // A proven win outranks temperature.
         match self.vcf_move.filter(|_| self.solver) {
             Some((point, _)) => point as i32,
-            None => sample_of(&self.root_moves(), temperature, unit),
+            None => sample_of(&self.root_moves(), temperature, unit, self.unit),
         }
     }
     // The root player's quickest VCF as its first move and plies to the five,
@@ -1738,6 +1793,35 @@ mod search_tests {
     }
 
     #[test]
+    fn best_move_prefers_a_well_searched_higher_score() {
+        // Scores in root wins: 52% over 4780 games, 80% over 3570, and 95%
+        // over only 300, too few to compete.
+        let mut s = tree(&[(1, 4780, None, 0), (2, 3570, None, 0), (3, 300, None, 0)]);
+        for (id, rate) in [(1, 0.52), (2, 0.8), (3, 0.95)] {
+            s.nodes[id].points = (2. * rate * f64::from(s.nodes[id].n)) as u32;
+        }
+        assert_eq!(s.best_move(), 2);
+        assert_eq!(pick_move(&s.stats(), 0., 0., 64), 2);
+        // A close score does not overturn a much larger count.
+        s.nodes[2].points = (2. * 0.53 * 3570.) as u32;
+        assert_eq!(s.best_move(), 1);
+    }
+
+    #[test]
+    fn ranked_stats_follow_the_choosing_side() {
+        let mut s = tree(&[(1, 900, None, 0), (2, 800, None, 0), (3, 50, Some(0), 2)]);
+        s.nodes[1].points = 2 * 300;
+        s.nodes[2].points = 2 * 600;
+        let order = |mine| {
+            let r = rank_stats(&s.stats(), 64, mine);
+            r.chunks(STAT_WORDS).map(|w| w[0]).collect::<Vec<_>>()
+        };
+        // The root player loses at 3, so its opponent wins there.
+        assert_eq!(order(true), [2, 1, 3]);
+        assert_eq!(order(false), [3, 1, 2]);
+    }
+
+    #[test]
     fn proven_distances_follow_quicker_wins() {
         let mut s = tree(&[(1, 90, Some(2), 6), (2, 10, Some(2), 2)]);
         s.nodes[0].proven = Some(2);
@@ -1763,10 +1847,13 @@ mod search_tests {
         assert_eq!((get(2).n, get(2).proven, get(2).dist), (15, Some(2), 2));
         assert_eq!((get(3).proven, get(3).dist), (Some(0), 7));
         assert_eq!(get(4).n, 70);
-        assert_eq!(pick_move(&merge_stats(&a.stats(), &b.stats()), 0., 0.), 2);
+        assert_eq!(
+            pick_move(&merge_stats(&a.stats(), &b.stats()), 0., 0., 64),
+            2
+        );
         // One tree's statistics choose like the tree itself.
         for (t, unit) in [(0., 0.), (1., 0.3), (1., 0.95)] {
-            assert_eq!(pick_move(&a.stats(), t, unit), a.sample_move(t, unit));
+            assert_eq!(pick_move(&a.stats(), t, unit, 64), a.sample_move(t, unit));
         }
     }
 
@@ -2178,6 +2265,7 @@ mod search_tests {
                         &merged,
                         engine.temperature,
                         f64::from(next()) / 2f64.powi(32),
+                        64,
                     );
                 } else if point < 0 {
                     let start = s.rounds;

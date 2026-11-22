@@ -163,6 +163,7 @@ function keep(search, board, root, point, config) {
     board: after,
     root,
     key: searchKey(config),
+    batch: config.batch,
     simulations: 0,
     deadline: 0,
   };
@@ -198,8 +199,10 @@ function ponderStatus(state, reason) {
     state,
     reason,
     simulations: kept?.simulations ?? 0,
-    // The player's replies as searched so far, for the hint.
-    hint: kept?.search.focus_stats() ?? [],
+    // The player's replies as searched so far, best first for the player.
+    hint: kept
+      ? wasm_bindgen.rank_stats(kept.search.focus_stats(), kept.batch, false)
+      : [],
   });
 }
 async function ponderRound(entry, config) {
@@ -604,30 +607,24 @@ onmessage = async ({ data }) => {
     }
     const children = [];
     // Proof codes: 0 unknown, 1 root loss, 2 draw, 3 root win. `plies` counts
-    // moves to the end of a proven game after this one.
-    const rank = [1, 0, 1, 2];
-    for (let j = 0; j < values.length; j += 8)
+    // moves to the end of a proven game after this one. Listed in the order
+    // the AI ranks them.
+    const ranked = wasm_bindgen.rank_stats(values, batchSize, true);
+    for (let j = 0; j < ranked.length; j += 8)
       children.push({
-        i: values[j],
-        n: values[j + 1],
-        w: values[j + 2] / 2,
-        proven: ["", "loss", "draw", "win"][values[j + 3]],
-        plies: values[j + 4],
-        rank: rank[values[j + 3]],
-        outcomes: [values[j + 5], values[j + 6], values[j + 7]],
+        i: ranked[j],
+        n: ranked[j + 1],
+        w: ranked[j + 2] / 2,
+        proven: ["", "loss", "draw", "win"][ranked[j + 3]],
+        plies: ranked[j + 4],
+        outcomes: [ranked[j + 5], ranked[j + 6], ranked[j + 7]],
       });
-    children.sort(
-      (a, b) =>
-        b.rank - a.rank ||
-        (a.rank === 2 ? a.plies - b.plies : b.plies - a.plies) ||
-        b.n - a.n ||
-        b.w - a.w,
-    );
     // Difficulty samples among searched moves; temperature 0 plays the best move.
     const point = wasm_bindgen.pick_move(
       values,
       config.temperature ?? 0,
       Math.random(),
+      batchSize,
     );
     for (const helper of helpers)
       helper.worker.postMessage({ type: "helper-played", point });
