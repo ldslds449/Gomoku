@@ -95,7 +95,7 @@ function setHelpers(config) {
               ? 1
               : Math.min(4, self.navigator?.hardwareConcurrency ?? 1)) - 1,
         );
-  const key = JSON.stringify([wanted, mode, config.rule]);
+  const key = JSON.stringify([wanted, mode]);
   if (key === helperKey) return;
   helperKey = key;
   for (const helper of helpers) helper.worker.terminate();
@@ -114,7 +114,7 @@ function setHelpers(config) {
       worker.onerror = () => resolve();
     });
     worker.postMessage({ type: "helper" });
-    worker.postMessage({ type: "connect", device: mode, rule: config.rule });
+    worker.postMessage({ type: "connect", device: mode });
     helpers.push(helper);
   }
 }
@@ -348,10 +348,6 @@ onmessage = async ({ data }) => {
     }
     if (data.type === "connect") {
       mode = data.device;
-      if (data.rule === 2) {
-        mode = "cpu";
-        fallback = "禁手模式使用 CPU";
-      }
       if (mode !== "cpu") {
         try {
           if (!self.navigator?.gpu) throw Error("瀏覽器未提供 WebGPU");

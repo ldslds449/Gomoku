@@ -706,8 +706,7 @@
           >
         </div>
         <p id="rules-note" hidden>
-          本模式採正式連珠禁手，黑棋禁長連、雙四和雙三；活三須能下成活四，且該延伸點本身不是禁手（逐層驗證）。黑棋成五時即使同時形成禁手仍算勝。白棋五子以上即勝。此模式使用
-          CPU。
+          本模式採正式連珠禁手，黑棋禁長連、雙四和雙三；活三須能下成活四，且該延伸點本身不是禁手（逐層驗證）。黑棋成五時即使同時形成禁手仍算勝。白棋五子以上即勝。
         </p>
       </section>
       <div class="sidebar-actions">
@@ -1823,7 +1822,7 @@
         msg.textContent = "AI 執行失敗，請重新開局";
         finished = true;
       };
-      worker.postMessage({ type: "connect", device: device.value, rule });
+      worker.postMessage({ type: "connect", device: device.value });
       next();
     }
     device.onchange = connect;
@@ -1981,7 +1980,6 @@
       inset = (15 - size) / 2;
       rule = +ruleSelect.value;
       document.querySelector("#rules-note").hidden = rule !== 2;
-      device.disabled = rule === 2;
       board = new Uint8Array(225).fill(3);
       for (let y = 0; y < size; y++)
         board.fill(0, index(0, y), index(0, y) + size);

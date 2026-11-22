@@ -26,7 +26,9 @@ pub struct Gpu {
     width: u32,
     device: Device,
     queue: Queue,
-    pipeline: ComputePipeline,
+    // Indexed by whether the pipeline checks renju forbidden moves, which
+    // costs other rules about a third of their throughput when compiled in.
+    pipelines: [ComputePipeline; 2],
     slots: Vec<Slot>,
     // Oldest first; results come back in submission order.
     flights: RefCell<VecDeque<Flight>>,
@@ -66,16 +68,40 @@ impl Gpu {
             label: None,
             source: ShaderSource::Wgsl(include_str!("rollout.wgsl").into()),
         });
-        let pipeline = device.create_compute_pipeline(&ComputePipelineDescriptor {
-            label: None,
-            layout: None,
-            module: &shader,
-            entry_point: Some("main"),
-            compilation_options: PipelineCompilationOptions {
-                constants: &[("width", f64::from(width))],
-                ..Default::default()
+        let storage = |binding, read_only| BindGroupLayoutEntry {
+            binding,
+            visibility: ShaderStages::COMPUTE,
+            ty: BindingType::Buffer {
+                ty: BufferBindingType::Storage { read_only },
+                has_dynamic_offset: false,
+                min_binding_size: None,
             },
-            cache: None,
+            count: None,
+        };
+        let layout = device.create_bind_group_layout(&BindGroupLayoutDescriptor {
+            label: None,
+            entries: &[storage(0, true), storage(1, false)],
+        });
+        let pipeline_layout = device.create_pipeline_layout(&PipelineLayoutDescriptor {
+            label: None,
+            bind_group_layouts: &[Some(&layout)],
+            immediate_size: 0,
+        });
+        let pipelines = [false, true].map(|renju| {
+            device.create_compute_pipeline(&ComputePipelineDescriptor {
+                label: None,
+                layout: Some(&pipeline_layout),
+                module: &shader,
+                entry_point: Some("main"),
+                compilation_options: PipelineCompilationOptions {
+                    constants: &[
+                        ("width", f64::from(width)),
+                        ("renju_rule", f64::from(u8::from(renju))),
+                    ],
+                    ..Default::default()
+                },
+                cache: None,
+            })
         });
         let buf = |size, usage| {
             device.create_buffer(&BufferDescriptor {
@@ -102,7 +128,7 @@ impl Gpu {
                 );
                 let group = device.create_bind_group(&BindGroupDescriptor {
                     label: None,
-                    layout: &pipeline.get_bind_group_layout(0),
+                    layout: &layout,
                     entries: &[
                         BindGroupEntry {
                             binding: 0,
@@ -126,7 +152,7 @@ impl Gpu {
             width,
             device,
             queue,
-            pipeline,
+            pipelines,
             slots,
             flights: Default::default(),
         })
@@ -169,7 +195,7 @@ impl Gpu {
         for p in &s.pending {
             Self::encode_leaf(&mut bytes, s, &p.leaf, p.turn, p.round.wrapping_mul(batch));
         }
-        self.launch(&bytes, batch, leaves)?;
+        self.launch(&bytes, batch, leaves, s.rule)?;
         s.queue_pending();
         Ok(leaves)
     }
@@ -222,7 +248,7 @@ impl Gpu {
         }
         let mut bytes = Vec::with_capacity(LEAF_BYTES as usize);
         Self::encode_leaf(&mut bytes, s, &s.leaf, s.turn, s.rounds.wrapping_mul(batch));
-        self.launch(&bytes, batch, 1)?;
+        self.launch(&bytes, batch, 1, s.rule)?;
         let (_, _, words) = self.land().await?.unwrap();
         let bytes: Vec<[u8; 4]> = words.into_iter().map(u32::to_le_bytes).collect();
         Ok(reduce(bytes.iter()))
@@ -276,7 +302,7 @@ impl Gpu {
         }
     }
     // Upload leaves into a free slot and submit their dispatch.
-    fn launch(&self, bytes: &[u8], batch: u32, leaves: u32) -> Result<(), JsError> {
+    fn launch(&self, bytes: &[u8], batch: u32, leaves: u32, rule: u8) -> Result<(), JsError> {
         let mut flights = self.flights.borrow_mut();
         if flights.len() >= SLOTS {
             return Err(JsError::new("派送佇列已滿"));
@@ -288,7 +314,7 @@ impl Gpu {
         let mut enc = self.device.create_command_encoder(&Default::default());
         {
             let mut pass = enc.begin_compute_pass(&Default::default());
-            pass.set_pipeline(&self.pipeline);
+            pass.set_pipeline(&self.pipelines[usize::from(rule == 2)]);
             pass.set_bind_group(0, &buffers.group, &[]);
             pass.dispatch_workgroups(batch / self.width, leaves, 1);
         }
@@ -452,7 +478,7 @@ mod tests {
         })
     }
     // Games per second for one full dispatch (256 leaves x 256 games) from
-    // positions of the five-free pattern, by workgroup width and rollout policy.
+    // positions of the five-free pattern, by workgroup width, rule and rollout policy.
     #[test]
     #[ignore = "requires a Metal, Vulkan or DX12 GPU"]
     fn shader_throughput_benchmark() {
@@ -470,8 +496,8 @@ mod tests {
                             remaining[side] -= 1;
                         }
                     }
-                    for policy in [false, true] {
-                        let mut s = Search::new(&board, 2, 42, 2f64.sqrt(), None).unwrap();
+                    for (rule, policy) in [(0, false), (0, true), (2, false), (2, true)] {
+                        let mut s = Search::new(&board, 2, 42, 2f64.sqrt(), Some(rule)).unwrap();
                         s.policy = policy;
                         let mut times = vec![];
                         for _ in 0..12 {
@@ -482,7 +508,7 @@ mod tests {
                         }
                         times.sort();
                         println!(
-                            "width {width:3}, {:3} stones, policy {policy:5}: {:5.2} M games/s",
+                            "width {width:3}, {:3} stones, rule {rule}, policy {policy:5}: {:5.2} M games/s",
                             2 * pairs + 1,
                             65536. / times[6].as_secs_f64() / 1e6
                         );
@@ -498,9 +524,9 @@ mod tests {
             let gpu = Gpu::with_width(64).await.unwrap();
             let mut board = [0; 225];
             board[112] = 1;
-            for (policy, depth) in [(false, 2), (true, 3)] {
-                let mut on_gpu = Search::new(&board, 2, 42, 2f64.sqrt(), None).unwrap();
-                let mut on_cpu = Search::new(&board, 2, 42, 2f64.sqrt(), None).unwrap();
+            for (policy, depth, rule) in [(false, 2, 0), (true, 3, 0), (true, 2, 2)] {
+                let mut on_gpu = Search::new(&board, 2, 42, 2f64.sqrt(), Some(rule)).unwrap();
+                let mut on_cpu = Search::new(&board, 2, 42, 2f64.sqrt(), Some(rule)).unwrap();
                 on_gpu.policy = policy;
                 on_cpu.policy = policy;
                 // Selection runs while earlier batches are still on the GPU.
@@ -537,6 +563,9 @@ mod tests {
                 (3, 1, false),
                 (0, 0, true),
                 (0, 1, true),
+                (0, 2, false),
+                (3, 2, false),
+                (0, 2, true),
             ] {
                 let mut board = [0; 225];
                 for (i, point) in board.iter_mut().enumerate() {
@@ -595,6 +624,89 @@ mod tests {
                     }
                 }
             }
+        });
+    }
+    // Renju games from crowded positions, where black often meets forbidden
+    // points and sometimes has no legal move, score game by game as on the CPU.
+    #[test]
+    #[ignore = "requires a Metal GPU"]
+    fn renju_rollouts_match_individually() {
+        pollster::block_on(async {
+            let gpu = Gpu::with_width(32).await.unwrap();
+            let mut forbidden_seen = 0;
+            let mut tested = 0;
+            for fixture in 0..64u32 {
+                if tested == 8 {
+                    break;
+                }
+                // Scattered stones without any five.
+                let pairs = 4 + fixture * 7 % 80;
+                let mut board = [0; 225];
+                let mut remaining = [pairs + 1, pairs];
+                let mut rng = fixture;
+                while remaining != [0, 0] {
+                    rng = rng.wrapping_mul(1664525).wrapping_add(1013904223);
+                    let i = (rng >> 8) as usize % 225;
+                    let p = if remaining[0] > remaining[1] { 1 } else { 2 };
+                    if board[i] != 0 {
+                        continue;
+                    }
+                    board[i] = p;
+                    if crate::won(&board, i, p, 0) {
+                        board[i] = 0;
+                        continue;
+                    }
+                    remaining[usize::from(p - 1)] -= 1;
+                }
+                forbidden_seen += (0..225)
+                    .filter(|&i| board[i] == 0 && !crate::rules::legal(&board, i, 1, 2))
+                    .count();
+                let mut s = Search::new(&board, 2, 0, 2f64.sqrt(), Some(2)).unwrap();
+                // Skip positions the search settles without rollouts.
+                if s.select() != -1 {
+                    continue;
+                }
+                tested += 1;
+                let lines = crate::lines::Lines::from_board(&s.leaf);
+                for (seed, policy) in [1, 42, 0x9e3779b9]
+                    .into_iter()
+                    .flat_map(|seed| [(seed, false), (seed, true)])
+                {
+                    s.seed = seed;
+                    s.policy = policy;
+                    let scores = gpu
+                        .read_scores(&s, 1024, |words| {
+                            words.map(|w| u32::from_le_bytes(*w)).collect::<Vec<_>>()
+                        })
+                        .await
+                        .unwrap();
+                    let expected: Vec<u32> = (0..1024 / 32)
+                        .map(|group| {
+                            (0..32)
+                                .map(|lane| {
+                                    let (empty, n) = s.rollout_empty_points();
+                                    let points = s.rollout(
+                                        lines.clone(),
+                                        empty,
+                                        n,
+                                        seed ^ (group * 32 + lane) as u32,
+                                        s.rollout_threats(&lines),
+                                    );
+                                    points + (u32::from(points == 2) << 16)
+                                })
+                                .sum()
+                        })
+                        .collect();
+                    assert_eq!(
+                        scores, expected,
+                        "{pairs} pairs, seed {seed}, policy {policy}"
+                    );
+                }
+            }
+            assert!(
+                forbidden_seen > 0 && tested >= 4,
+                "{forbidden_seen} {tested}"
+            );
         });
     }
     #[test]
