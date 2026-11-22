@@ -107,6 +107,7 @@ function setHelpers(config) {
     helper.ready = new Promise((resolve) => {
       worker.onmessage = ({ data }) => {
         if (data.type === "backend") resolve();
+        if (data.type === "helper-ponder") helper.ponder = data;
         if (data.type === "helper-stats") {
           helper.waiting.get(data.request)?.(data);
           helper.waiting.delete(data.request);
@@ -125,8 +126,11 @@ const helperConfig = (config, k) => ({
   seed: (config.seed ^ Math.imul(k + 1, 0x9e3779b9)) >>> 0,
 });
 function askHelpers(message, config) {
-  for (const [k, helper] of helpers.entries())
+  for (const [k, helper] of helpers.entries()) {
+    // Counts from an earlier pondering no longer describe this one.
+    helper.ponder = undefined;
     helper.worker.postMessage({ ...message, config: helperConfig(config, k) });
+  }
 }
 // Start the helpers' searches; resolves to their statistics (null on failure).
 function helperSearches(board, root, config) {
@@ -194,14 +198,25 @@ function createSearch(board, root, config) {
   return search;
 }
 function ponderStatus(state, reason) {
-  if (self.isHelper) return;
+  let simulations = kept?.simulations ?? 0;
+  let reused = kept?.reused ?? 0;
+  // A helper reports its counts to the main worker, which adds them up.
+  if (self.isHelper) {
+    postMessage({ type: "helper-ponder", simulations, reused });
+    return;
+  }
+  for (const helper of helpers) {
+    simulations += helper.ponder?.simulations ?? 0;
+    reused += helper.ponder?.reused ?? 0;
+  }
   postMessage({
     type: "ponder-status",
     request: ponderRequest,
     state,
     reason,
-    simulations: kept?.simulations ?? 0,
-    reused: kept?.reused ?? 0,
+    // Counted over the main tree and every helper's.
+    simulations,
+    reused,
     // The player's replies as searched so far, best first for the player.
     hint: kept
       ? wasm_bindgen.rank_stats(kept.search.focus_stats(), kept.batch, false)
@@ -443,7 +458,8 @@ onmessage = async ({ data }) => {
     search = cached?.search ?? createSearch(board, root, config);
     // The budget counts only this move's work; the inherited tree is extra.
     let rounds = 0;
-    const reusedSimulations = search.visits();
+    // Both count the helpers' trees too once their results are merged.
+    let reusedSimulations = search.visits();
     let simulations = reusedSimulations;
     const batchSize = config.batch ?? 64;
     if (![64, 128, 256, 512, 1024, 2048, 4096, 8192].includes(batchSize))
@@ -593,6 +609,7 @@ onmessage = async ({ data }) => {
         stats: search.stats(),
         rounds,
         simulations,
+        reusedSimulations,
         depth: search.depth(),
       });
       search = undefined;
@@ -606,6 +623,7 @@ onmessage = async ({ data }) => {
       values = wasm_bindgen.merge_stats(values, result.stats);
       rounds += result.rounds;
       simulations += result.simulations;
+      reusedSimulations += result.reusedSimulations ?? 0;
       helperDepth = Math.max(helperDepth, result.depth);
     }
     const children = [];

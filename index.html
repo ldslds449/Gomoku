@@ -1505,6 +1505,10 @@
               ["搜尋輪數", number(data.rounds)],
               ["模擬總數", number(data.simulations)],
               ["沿用先前搜尋", `${number(data.reusedSimulations ?? 0)} 場`],
+              [
+                "本手新增",
+                `${number(data.simulations - (data.reusedSimulations ?? 0))} 場`,
+              ],
               ["最大深度", number(data.depth)],
               [
                 "採用著點的玩家勝場",
